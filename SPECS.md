@@ -18,7 +18,7 @@ Function HashMaze(key, salt, romSize, nbInstructions)
 
     for i = 0 to nbInstructions-1 do
         vmExec(vm, rom)
-        vmStep(vm)
+        vmForward(vm)
 
     vmFinalize()
 ```
@@ -55,7 +55,7 @@ Function vmInitialize()
 Function vmExec()
     TBD
 
-Function vmStep()
+Function vmForward()
     TBD
 
 Function vmFinalize()
