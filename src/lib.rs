@@ -151,7 +151,7 @@ impl Rom {
     }
 
     pub fn at<'a>(&'a self, i: u32) -> &'a [u8; INSTR_SIZE] {
-        let start = (i as usize * INSTR_SIZE) % self.data.len();
+        let start = (i as usize).wrapping_mul(INSTR_SIZE) % self.data.len();
         <&[u8; INSTR_SIZE]>::try_from(&self.data[start..start + INSTR_SIZE]).unwrap()
     }
 }
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn rom_random_distribution() {
-        let mut distribution = [0; u8::MAX as usize + 1];
+        let mut distribution = [0; 256];
 
         const SIZE: usize = 1_024 * 1_024;
 
