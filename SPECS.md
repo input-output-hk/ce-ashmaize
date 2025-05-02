@@ -4,16 +4,17 @@ Main Function is defined as following:
 
 ```
 # Hashmaze Hash
-Function HashMaze(password, romSize, nbInstructions)
+Function HashMaze(key, salt, romSize, nbInstructions)
     # Inputs:
-    #   password:        Bytes
+    #   key:             Bytes
+    #   salt:            Bytes
     #   romSize:         Integer (32..2^32-1)
     #   nbInstructions:  Integer (128..2^32-1)
     # Output:
     #  digest:           Bytes (64 bytes)
 
-    rom = Rom(password, romSize)
-    vm = vmInitialize(Blake2(rom, 64))
+    rom = Rom(key, romSize)
+    vm = vmInitialize(Blake2(Blake2(rom, 64) | salt, 64))
 
     for i = 0 to nbInstructions-1 do
         vmExec(vm, rom)
@@ -27,7 +28,7 @@ Function HashMaze(password, romSize, nbInstructions)
 Generate a large amount of read only memory that will be used to execute instructions
 
 ```
-Function Rom(password, romSize)
+Function Rom(key, romSize)
     # Inputs:
     #   password:        Bytes
     #   romSize:         Integer (32..2^32-1)
@@ -37,6 +38,15 @@ Function Rom(password, romSize)
 ```
 
 ### VM functions
+
+The VM is a CPU, with some registers (generic registers + instruction pointer), and some
+other state tracking.
+
+* vmInitialize initialize the registers to arbitrary random value
+* vmExec take the instruction pointer, read the instruction from ROM, and then execute
+  an operation that change the state of the VM
+* vmStep mix some stuff and move the instruction pointer
+* vmFinalize take the state of the VM and produce a final digest
 
 ```
 Function vmInitialize()
