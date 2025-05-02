@@ -66,12 +66,16 @@ impl From<u8> for Operand {
 }
 
 impl VM {
-    pub fn new(seed_regs: &[u8; 64]) -> Self {
+    pub fn new(seed_regs: &[u8; 64], salt: &[u8]) -> Self {
+        let seed = Blake2b::<512>::new()
+            .update(seed_regs)
+            .update(salt)
+            .finalize();
         let mut regs = [0; NB_REGS];
         for (i, reg) in regs.iter_mut().enumerate() {
             let mut reg_out = [0; 8];
             Blake2b::<64>::new()
-                .update(seed_regs)
+                .update(&seed)
                 .update(&(i as u32).to_le_bytes())
                 .finalize_at(&mut reg_out);
             *reg = u64::from_le_bytes(reg_out)
@@ -223,9 +227,9 @@ fn execute_one(vm: &mut VM, rom: &Rom) -> u32 {
     instr_val
 }
 
-pub fn hash(rom: &Rom, nb_instrs: usize) -> [u8; 64] {
+pub fn hash(salt: &[u8], rom: &Rom, nb_instrs: usize) -> [u8; 64] {
     // initialize the VM with the seed
-    let mut vm = VM::new(&rom.data_hash);
+    let mut vm = VM::new(&rom.data_hash, salt);
 
     vm.execute(&rom, nb_instrs);
     vm.finalize()
@@ -242,7 +246,7 @@ mod tests {
 
         let rom = Rom::new(b"123", SIZE);
 
-        let h = hash(&rom, NB_INSTR);
+        let h = hash(b"hello", &rom, NB_INSTR);
         println!("{:?}", h);
     }
 }
