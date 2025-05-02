@@ -5,3 +5,10 @@ edition = "2024"
 
 [dependencies]
 cryptoxide = { version = "0.5", git = "https://github.com/typed-io/cryptoxide" }
+
+[dev-dependencies]
+divan = "0.1.21"
+
+[[bench]]
+name = "bench"
+harness = false
