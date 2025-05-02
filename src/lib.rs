@@ -249,4 +249,30 @@ mod tests {
         let h = hash(b"hello", &rom, NB_INSTR);
         println!("{:?}", h);
     }
+
+    #[test]
+    fn rom_random_distribution() {
+        let mut distribution = [0; u8::MAX as usize + 1];
+
+        const SIZE: usize = 1_024 * 1_024;
+
+        let rom = Rom::new(b"password", SIZE);
+
+        for byte in rom.data {
+            let index = byte as usize;
+            distribution[index] += 1;
+        }
+
+        const MIN: usize = SIZE / (u8::MAX as usize) - u8::MAX as usize;
+
+        dbg!(&distribution);
+        dbg!(MIN);
+
+        assert!(
+            distribution
+                .iter()
+                .take(u8::MAX as usize)
+                .all(|&count| count > MIN)
+        );
+    }
 }
