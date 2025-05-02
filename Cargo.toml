@@ -1,0 +1,7 @@
+[package]
+name = "hashmaze"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cryptoxide = { version = "0.5", git = "https://github.com/typed-io/cryptoxide" }
