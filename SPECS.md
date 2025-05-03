@@ -1,3 +1,50 @@
+## Design
+
+General guiding principles to make the algorithm more ASIC resistant
+
+- Require large amount of memory: this is slow/expensive for ASIC.
+- Data dependent control flow: Kill optimisation of flow on ASIC.
+- Limit parallelism: Sequentiality reduces ASIC scalability.
+- Algorithm complexity: Increase the number of operations needed to implement an ASIC
+
+HashMaze is designed with 2 parts:
+
+- generating a large deterministic pseudo random execution buffer
+- emulating a generic CPU like instruction on top of this execution buffer
+
+
+```
+  +-------+                      +--------+
+  |  Key  |                      |  Salt  |
+  +---+---+                      +----+---+
+      |                               |
+      |                       +---+   |
++-----v-------+               |   |   |
+|  RandomGen  |               |  +v---v-----+
++-----+-------+               |  | VM Init  |
+      |                       |  +----+-----+
+      |                       |       |
++-----v--+    +------------+  |       |
+|  ROM   +----> ROM Digest |--+       |
++-----^--+    +------------+          |
+      |                        +------v-------+
+      |                        |              <-----\
+      +------------------------+  VM Execute  |     |
+                               |              +-----/
+                               +------+-------+
+                                      |
+                                      |
+                               +------v------+
+                               | VM Finalize |
+                               +------+------+
+                                      |
+                                      |
+                                   +--v--+
+                                   |Hash |
+                                   +-----+
+```
+
+
 ### Main Function
 
 Main Function is defined as following:
@@ -11,7 +58,7 @@ Function HashMaze(key, salt, romSize, nbInstructions)
     #   romSize:         Integer (32..2^32-1)
     #   nbInstructions:  Integer (128..2^32-1)
     # Output:
-    #  digest:           Bytes (64 bytes)
+    #   digest:          Bytes (64 bytes)
 
     rom = Rom(key, romSize)
     vm = vmInitialize(Blake2(Blake2(rom, 64) | salt, 64))
@@ -22,6 +69,13 @@ Function HashMaze(key, salt, romSize, nbInstructions)
 
     vmFinalize()
 ```
+
+Steps:
+
+1. Create a large amount of Read only memory, initialized using a sequential
+   hashing construction using the 'key'
+2. Initialize a VM, and Execute a user chosen number of instruction, then finalize the state of the VM
+   into a Digest
 
 ### Rom function
 
