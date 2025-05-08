@@ -1,23 +1,37 @@
-use divan::{Bencher, counter::BytesCount};
+use criterion::{Criterion, criterion_group, criterion_main};
 use hashmaze::Rom;
+use randomx_rs::{RandomXCache, RandomXFlag, RandomXVM};
 
-fn main() {
-    divan::main();
+fn criterion_benchmark(c: &mut Criterion) {
+    const GB: usize = 1_024 * 1_024 * 1_024;
+
+    c.bench_function("hashmaze/initialize", |b| {
+        b.iter(|| Rom::new(b"password", 2 * GB))
+    });
+
+    let rom = Rom::new(b"password", 2 * GB);
+    c.bench_function("hashmaze/hash", |b| {
+        b.iter(|| hashmaze::hash(b"salt", &rom, 2_048))
+    });
+
+    c.bench_function("RandomX/initialize", |b| {
+        b.iter(|| {
+            RandomXVM::new(
+                RandomXFlag::FLAG_DEFAULT,
+                Some(RandomXCache::new(RandomXFlag::FLAG_DEFAULT, b"key").unwrap()),
+                None,
+            )
+        })
+    });
+
+    let vm = RandomXVM::new(
+        RandomXFlag::FLAG_DEFAULT,
+        Some(RandomXCache::new(RandomXFlag::FLAG_DEFAULT, b"key").unwrap()),
+        None,
+    )
+    .unwrap();
+    c.bench_function("RandomX/hash", |b| b.iter(|| vm.calculate_hash(b"data")));
 }
 
-#[divan::bench(args = [1_024, 1_024 * 1_024, 10 * 1_024 * 1_024, 100 * 1_024 * 1_024 ])]
-fn rom_new(bencher: Bencher, rom_size: usize) {
-    bencher
-        .counter(BytesCount::new(rom_size))
-        .bench(|| Rom::new(b"password", rom_size));
-}
-
-#[divan::bench(args = [1, 1024, 1024 * 1024, 10 * 1024 * 1024])]
-fn hash(bencher: Bencher, instruction_count: usize) {
-    // 10MB
-    let rom = Rom::new(b"password", 10 * 1_024 * 1_024);
-
-    bencher
-        .counter(instruction_count)
-        .bench(|| hashmaze::hash(b"salt", &rom, instruction_count))
-}
+criterion_group!(benches, criterion_benchmark);
+criterion_main!(benches);
