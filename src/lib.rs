@@ -240,6 +240,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn instruction_count_diff() {
+        let rom = Rom::new(b"password", 10_240);
+
+        let h1 = hash(&0u128.to_be_bytes(), &rom, 1_000_000);
+        let h2 = hash(&0u128.to_be_bytes(), &rom, 1_000_001);
+
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
     fn test() {
         const SIZE: usize = 10 * 1024 * 1024;
         const NB_INSTR: usize = 256;
