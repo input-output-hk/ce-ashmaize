@@ -32,6 +32,8 @@ pub enum Op3 {
 #[derive(Clone, Copy)]
 pub enum Op2 {
     Neg,
+    RotL,
+    RotR,
 }
 
 // special encoding
@@ -39,10 +41,12 @@ pub enum Op2 {
 impl From<u8> for Instr {
     fn from(value: u8) -> Self {
         match value {
-            0..8 => Instr::Op3(Op3::Add),
-            8..16 => Instr::Op3(Op3::Mul),
-            0xfe => Instr::Op3(Op3::Xor),
-            0xff => Instr::Op2(Op2::Neg),
+            0..32 => Instr::Op3(Op3::Add),
+            32..64 => Instr::Op3(Op3::Mul),
+            200..208 => Instr::Op3(Op3::Xor),
+            208..216 => Instr::Op2(Op2::RotL),
+            216..232 => Instr::Op2(Op2::RotR),
+            232..240 => Instr::Op2(Op2::Neg),
             _ => Instr::Op3(Op3::Add),
         }
     }
@@ -58,10 +62,10 @@ pub enum Operand {
 
 impl From<u8> for Operand {
     fn from(value: u8) -> Self {
-        match value & 0b11 {
-            0 => Self::Reg,
-            1 => Self::Ip,
-            2 => Self::Literal,
+        match value {
+            0..200 => Self::Reg,
+            200..240 => Self::Literal,
+            240..250 => Self::Ip,
             _ => Self::Special,
         }
     }
@@ -189,7 +193,7 @@ fn execute_one_instruction(vm: &mut VM, rom_chunk: &[u8]) {
             let result = match operator {
                 Op3::Add => src1.wrapping_add(src2),
                 Op3::Mul => src1.wrapping_mul(src2),
-                Op3::Xor => src1.wrapping_mul(src2),
+                Op3::Xor => src1 ^ src2,
             };
 
             match op3 {
@@ -214,6 +218,8 @@ fn execute_one_instruction(vm: &mut VM, rom_chunk: &[u8]) {
 
             let result = match operator {
                 Op2::Neg => !src,
+                Op2::RotL => src.rotate_left(1),
+                Op2::RotR => src.rotate_right(1),
             };
 
             match op2 {
@@ -242,8 +248,8 @@ mod tests {
     fn instruction_count_diff() {
         let rom = Rom::new(b"password1", 10_240);
 
-        let h1 = hash(&0u128.to_be_bytes(), &rom, 100_000);
-        let h2 = hash(&0u128.to_be_bytes(), &rom, 100_001);
+        let h1 = hash(&0u128.to_be_bytes(), &rom, 10_000);
+        let h2 = hash(&0u128.to_be_bytes(), &rom, 10_001);
 
         //let h1 = hash(&0u128.to_be_bytes(), &rom, 75);
         //let h2 = hash(&0u128.to_be_bytes(), &rom, 76);
