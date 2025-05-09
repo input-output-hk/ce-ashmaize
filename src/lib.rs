@@ -123,11 +123,6 @@ impl VM {
         self.step_finalize(rom_chunk);
     }
 
-    pub fn special_value64(&self) -> u64 {
-        let r = self.data_digest.clone().finalize();
-        u64::from_le_bytes(*<&[u8; 8]>::try_from(&r[0..8]).unwrap())
-    }
-
     pub fn execute(&mut self, rom: &Rom, instr: usize) {
         for _ in 0..instr {
             self.execute_one(rom)
@@ -142,6 +137,11 @@ impl VM {
         }
         context.update_mut(&self.ip.to_le_bytes());
         context.finalize()
+    }
+
+    pub fn special_value64(&self) -> u64 {
+        let r = self.data_digest.clone().finalize();
+        u64::from_le_bytes(*<&[u8; 8]>::try_from(&r[0..8]).unwrap())
     }
 }
 
