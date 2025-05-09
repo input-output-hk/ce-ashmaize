@@ -1,4 +1,7 @@
-use cryptoxide::{hashing::blake2b::Blake2b, kdf::argon2};
+use cryptoxide::{
+    hashing::blake2b::{self, Blake2b},
+    kdf::argon2,
+};
 
 // 1 byte operator
 // 3 bytes operands (src1, src2, dst)
@@ -9,9 +12,8 @@ const REGS_INDEX_MASK: u8 = NB_REGS as u8 - 1;
 
 pub struct VM {
     regs: [u64; NB_REGS],
-    checksum: u64,
     ip: u32,
-    instr_sum: u32,
+    data_digest: blake2b::Context<512>,
 }
 
 #[derive(Clone, Copy)]
@@ -72,68 +74,70 @@ impl VM {
             .update(salt)
             .finalize();
         let mut regs = [0; NB_REGS];
-        for (i, reg) in regs.iter_mut().enumerate() {
-            let mut reg_out = [0; 8];
-            Blake2b::<64>::new()
+        for (i, regs) in regs.chunks_mut(8).enumerate() {
+            let reg_out = Blake2b::<512>::new()
                 .update(&seed)
                 .update(&(i as u32).to_le_bytes())
-                .finalize_at(&mut reg_out);
-            *reg = u64::from_le_bytes(reg_out)
+                .finalize();
+            for (reg_bytes, reg) in reg_out.chunks(8).zip(regs.iter_mut()) {
+                *reg = u64::from_le_bytes(*<&[u8; 8]>::try_from(reg_bytes).unwrap())
+            }
         }
 
-        let ip = regs
-            .iter()
-            .copied()
-            .fold(0xffff_ffffu32, |acc, r| acc.wrapping_add(r as u32));
+        let reg_digest = {
+            let mut context = Blake2b::<512>::new().update(&seed);
+            for reg in regs {
+                context.update_mut(&reg.to_le_bytes())
+            }
+            context.finalize()
+        };
+        let ip = u32::from_le_bytes(*<&[u8; 4]>::try_from(&reg_digest[0..4]).unwrap());
 
-        let checksum = regs
-            .iter()
-            .copied()
-            .fold(ip as u64, |acc, r| acc.wrapping_mul(r).wrapping_add(r >> 1));
+        let data_digest = Blake2b::<512>::new().update(&reg_digest[4..]);
 
         Self {
             regs,
             ip,
-            checksum,
-            instr_sum: 0,
+            data_digest,
         }
     }
 
-    fn step_finalize(&mut self, instr: u32) {
+    fn step_finalize(&mut self, rom_chunk: &[u8]) {
+        let mut context = Blake2b::<512>::new();
         for r in self.regs {
-            self.checksum = self.checksum.wrapping_mul(r).wrapping_add(r & 0xEDCB);
+            context = context.update(&r.to_le_bytes());
         }
+        let r = context.finalize();
+        let ip = u32::from_le_bytes(*<&[u8; 4]>::try_from(&r[0..4]).unwrap());
+        self.ip = self.ip.wrapping_add(ip);
+        self.data_digest.update_mut(rom_chunk);
+    }
 
-        self.instr_sum = self.instr_sum.wrapping_add(instr);
-        self.ip = self
-            .ip
-            .wrapping_mul((self.checksum >> 32) as u32)
-            .wrapping_add(self.checksum as u32);
+    pub fn execute_one(&mut self, rom: &Rom) {
+        let rom_chunk = rom.at(self.ip);
+        execute_one_instruction(self, rom_chunk);
+        self.step_finalize(rom_chunk);
+    }
+
+    pub fn special_value64(&self) -> u64 {
+        let r = self.data_digest.clone().finalize();
+        u64::from_le_bytes(*<&[u8; 8]>::try_from(&r[0..8]).unwrap())
     }
 
     pub fn execute(&mut self, rom: &Rom, instr: usize) {
-        //assert_eq!(rom.data.len(), SIZE);
-
         for _ in 0..instr {
-            let instr_val = execute_one(self, rom);
-            self.step_finalize(instr_val);
+            self.execute_one(rom)
         }
     }
 
-    pub fn finalize(&self) -> [u8; 64] {
-        let mut out = [0u8; 64];
-
-        let mut checksum = self.checksum;
+    pub fn finalize(self) -> [u8; 64] {
+        let data_digest = self.data_digest.finalize();
+        let mut context = Blake2b::<512>::new().update(&data_digest);
         for r in self.regs {
-            checksum = checksum.wrapping_mul(r);
+            context.update_mut(&r.to_le_bytes());
         }
-        let mut context = Blake2b::<512>::new().update(&checksum.to_le_bytes());
-        for r in self.regs {
-            context.update_mut(&r.to_le_bytes())
-        }
-
-        context.finalize_at(&mut out);
-        out
+        context.update_mut(&self.ip.to_le_bytes());
+        context.finalize()
     }
 }
 
@@ -156,10 +160,7 @@ impl Rom {
     }
 }
 
-fn execute_one(vm: &mut VM, rom: &Rom) -> u32 {
-    let rom_chunk = rom.at(vm.ip);
-    let instr_val = u32::from_le_bytes(*<&[u8; 4]>::try_from(&rom_chunk[0..4]).unwrap());
-
+fn execute_one_instruction(vm: &mut VM, rom_chunk: &[u8]) {
     let opcode = Instr::from(rom_chunk[0]);
 
     match opcode {
@@ -174,7 +175,7 @@ fn execute_one(vm: &mut VM, rom: &Rom) -> u32 {
                 Operand::Literal => {
                     u64::from_le_bytes(*<&[u8; 8]>::try_from(&rom_chunk[4..12]).unwrap())
                 }
-                Operand::Special => vm.checksum,
+                Operand::Special => vm.special_value64(),
             };
             let src2 = match op2 {
                 Operand::Reg => vm.regs[(rom_chunk[12] & REGS_INDEX_MASK) as usize],
@@ -182,7 +183,7 @@ fn execute_one(vm: &mut VM, rom: &Rom) -> u32 {
                 Operand::Literal => {
                     u64::from_le_bytes(*<&[u8; 8]>::try_from(&rom_chunk[12..20]).unwrap())
                 }
-                Operand::Special => vm.checksum,
+                Operand::Special => vm.special_value64(),
             };
 
             let result = match operator {
@@ -208,7 +209,7 @@ fn execute_one(vm: &mut VM, rom: &Rom) -> u32 {
                 Operand::Literal => {
                     u64::from_le_bytes(*<&[u8; 8]>::try_from(&rom_chunk[4..12]).unwrap())
                 }
-                Operand::Special => vm.checksum,
+                Operand::Special => vm.special_value64(),
             };
 
             let result = match operator {
@@ -223,8 +224,6 @@ fn execute_one(vm: &mut VM, rom: &Rom) -> u32 {
             }
         }
     }
-
-    instr_val
 }
 
 pub fn hash(salt: &[u8], rom: &Rom, nb_instrs: usize) -> [u8; 64] {
@@ -241,10 +240,13 @@ mod tests {
 
     #[test]
     fn instruction_count_diff() {
-        let rom = Rom::new(b"password", 10_240);
+        let rom = Rom::new(b"password1", 10_240);
 
-        let h1 = hash(&0u128.to_be_bytes(), &rom, 1_000_000);
-        let h2 = hash(&0u128.to_be_bytes(), &rom, 1_000_001);
+        let h1 = hash(&0u128.to_be_bytes(), &rom, 100_000);
+        let h2 = hash(&0u128.to_be_bytes(), &rom, 100_001);
+
+        //let h1 = hash(&0u128.to_be_bytes(), &rom, 75);
+        //let h2 = hash(&0u128.to_be_bytes(), &rom, 76);
 
         assert_ne!(h1, h2);
     }
