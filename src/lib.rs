@@ -1,6 +1,6 @@
 use cryptoxide::{
-    hashing::blake2b::{self, Blake2b},
-    kdf::argon2,
+    drg,
+    hashing::blake2b::{self, Blake2b}, //kdf::argon2,
 };
 
 // 1 byte operator
@@ -14,6 +14,7 @@ pub struct VM {
     regs: [u64; NB_REGS],
     ip: u32,
     data_digest: blake2b::Context<512>,
+    counter: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -26,6 +27,7 @@ pub enum Instr {
 pub enum Op3 {
     Add,
     Mul,
+    MulH,
     Xor,
 }
 
@@ -43,6 +45,7 @@ impl From<u8> for Instr {
         match value {
             0..32 => Instr::Op3(Op3::Add),
             32..64 => Instr::Op3(Op3::Mul),
+            64..72 => Instr::Op3(Op3::MulH),
             200..208 => Instr::Op3(Op3::Xor),
             208..216 => Instr::Op2(Op2::RotL),
             216..232 => Instr::Op2(Op2::RotR),
@@ -72,9 +75,9 @@ impl From<u8> for Operand {
 }
 
 impl VM {
-    pub fn new(seed_regs: &[u8; 64], salt: &[u8]) -> Self {
+    pub fn new(seed_regs: &RomDigest, salt: &[u8]) -> Self {
         let seed = Blake2b::<512>::new()
-            .update(seed_regs)
+            .update(&seed_regs.0)
             .update(salt)
             .finalize();
         let mut regs = [0; NB_REGS];
@@ -103,17 +106,20 @@ impl VM {
             regs,
             ip,
             data_digest,
+            counter: 0,
         }
     }
 
     fn step_finalize(&mut self, rom_chunk: &[u8]) {
         let mut context = Blake2b::<512>::new();
+        context.update_mut(&self.counter.to_le_bytes());
         for r in self.regs {
-            context = context.update(&r.to_le_bytes());
+            context.update_mut(&r.to_le_bytes());
         }
         let r = context.finalize();
         let ip = u32::from_le_bytes(*<&[u8; 4]>::try_from(&r[0..4]).unwrap());
         self.ip = self.ip.wrapping_add(ip);
+        self.counter += 1;
         self.data_digest.update_mut(rom_chunk);
     }
 
@@ -123,7 +129,7 @@ impl VM {
         self.step_finalize(rom_chunk);
     }
 
-    pub fn execute(&mut self, rom: &Rom, instr: usize) {
+    pub fn execute(&mut self, rom: &Rom, instr: u32) {
         for _ in 0..instr {
             self.execute_one(rom)
         }
@@ -132,6 +138,7 @@ impl VM {
     pub fn finalize(self) -> [u8; 64] {
         let data_digest = self.data_digest.finalize();
         let mut context = Blake2b::<512>::new().update(&data_digest);
+        context.update_mut(&self.counter.to_le_bytes());
         for r in self.regs {
             context.update_mut(&r.to_le_bytes());
         }
@@ -143,19 +150,44 @@ impl VM {
         let r = self.data_digest.clone().finalize();
         u64::from_le_bytes(*<&[u8; 8]>::try_from(&r[0..8]).unwrap())
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn debug(&self) -> String {
+        let mut out = String::new();
+        for (i, r) in self.regs.iter().enumerate() {
+            out.push_str(&format!("[{:02x}] {:016x} ", i, r));
+            if (i % 4) == 3 {
+                out.push_str("\n");
+            }
+        }
+        out.push_str(&format!(
+            "ip {:08x} counter {:08x}\n",
+            self.ip, self.counter
+        ));
+        out
+    }
 }
 
+pub struct RomDigest([u8; 64]);
+
 pub struct Rom {
-    data_hash: [u8; 64],
+    pub digest: RomDigest,
     data: Vec<u8>,
 }
 
 impl Rom {
-    pub fn new(password: &[u8], size: usize) -> Self {
+    pub fn new(key: &[u8], size: usize) -> Self {
         let mut data = vec![0; size];
-        argon2::hprime(&mut data, password);
-        let data_hash = Blake2b::<512>::new().update(&data).finalize();
-        Self { data_hash, data }
+
+        let seed = blake2b::Context::<256>::new()
+            .update(&(data.len() as u32).to_le_bytes())
+            .update(key)
+            .finalize();
+        let mut drg = drg::chacha::Drg::<8>::new(&seed);
+        drg.fill_slice(&mut data);
+
+        let digest = RomDigest(Blake2b::<512>::new().update(&data).finalize());
+        Self { digest, data }
     }
 
     pub fn at<'a>(&'a self, i: u32) -> &'a [u8; INSTR_SIZE] {
@@ -194,6 +226,7 @@ fn execute_one_instruction(vm: &mut VM, rom_chunk: &[u8]) {
                 Op3::Add => src1.wrapping_add(src2),
                 Op3::Mul => src1.wrapping_mul(src2),
                 Op3::Xor => src1 ^ src2,
+                Op3::MulH => ((src1 as u128 * src2 as u128) >> 64) as u64,
             };
 
             match op3 {
@@ -232,10 +265,8 @@ fn execute_one_instruction(vm: &mut VM, rom_chunk: &[u8]) {
     }
 }
 
-pub fn hash(salt: &[u8], rom: &Rom, nb_instrs: usize) -> [u8; 64] {
-    // initialize the VM with the seed
-    let mut vm = VM::new(&rom.data_hash, salt);
-
+pub fn hash(salt: &[u8], rom: &Rom, nb_instrs: u32) -> [u8; 64] {
+    let mut vm = VM::new(&rom.digest, salt);
     vm.execute(&rom, nb_instrs);
     vm.finalize()
 }
@@ -251,16 +282,29 @@ mod tests {
         let h1 = hash(&0u128.to_be_bytes(), &rom, 10_000);
         let h2 = hash(&0u128.to_be_bytes(), &rom, 10_001);
 
-        //let h1 = hash(&0u128.to_be_bytes(), &rom, 75);
-        //let h2 = hash(&0u128.to_be_bytes(), &rom, 76);
-
         assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn check_ip_stale() {
+        let rom = Rom::new(b"password1", 10_240);
+
+        let salt = &0u128.to_be_bytes();
+        let nb_instrs = 100_000;
+        let mut vm = VM::new(&rom.digest, salt);
+        let mut prev_ip = 0;
+        for i in 0..nb_instrs {
+            let prev = vm.debug();
+            vm.execute_one(&rom);
+            assert_ne!(prev_ip, vm.ip, "instruction {}\n{}{}", i, prev, vm.debug());
+            prev_ip = vm.ip;
+        }
     }
 
     #[test]
     fn test() {
         const SIZE: usize = 10 * 1024 * 1024;
-        const NB_INSTR: usize = 256;
+        const NB_INSTR: u32 = 256;
 
         let rom = Rom::new(b"123", SIZE);
 

@@ -11,7 +11,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let rom = Rom::new(b"password", 2 * GB);
     c.bench_function("hashmaze/hash", |b| {
-        b.iter(|| hashmaze::hash(b"salt", &rom, 2_048))
+        b.iter(|| hashmaze::hash(b"salt", &rom, 256))
     });
 
     c.bench_function("RandomX/initialize", |b| {
