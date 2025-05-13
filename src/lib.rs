@@ -1,5 +1,4 @@
 use cryptoxide::{
-    drg,
     hashing::blake2b::{self, Blake2b}, //kdf::argon2,
 };
 
@@ -183,10 +182,8 @@ impl Rom {
             .update(&(data.len() as u32).to_le_bytes())
             .update(key)
             .finalize();
-        let mut drg = drg::chacha::Drg::<8>::new(&seed);
-        drg.fill_slice(&mut data);
+        let digest = random_gen(seed, &mut data);
 
-        let digest = RomDigest(Blake2b::<512>::new().update(&data).finalize());
         Self { digest, data }
     }
 
@@ -194,6 +191,20 @@ impl Rom {
         let start = (i as usize).wrapping_mul(INSTR_SIZE) % self.data.len();
         <&[u8; INSTR_SIZE]>::try_from(&self.data[start..start + INSTR_SIZE]).unwrap()
     }
+}
+
+fn random_gen(seed: [u8; 32], output: &mut [u8]) -> RomDigest {
+    use cryptoxide::kdf::argon2;
+
+    argon2::hprime(output, &seed);
+    /*
+    use cryptoxide::drg;
+
+    let mut drg = drg::chacha::Drg::<8>::new(&seed);
+    drg.fill_slice(output);
+    */
+    let digest = RomDigest(Blake2b::<512>::new().update(&output).finalize());
+    digest
 }
 
 fn execute_one_instruction(vm: &mut VM, rom_chunk: &[u8]) {

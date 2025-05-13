@@ -61,13 +61,15 @@ Function HashMaze(key, salt, romSize, nbInstructions)
     #   digest:          Bytes (64 bytes)
 
     rom = Rom(key, romSize)
-    vm = vmInitialize(Blake2(Blake2(rom, 64) | salt, 64))
+    rom-digest = Digest(rom)
 
-    for i = 0 to nbInstructions-1 do
-        vmExec(vm, rom)
-        vmForward(vm)
+    vm = VmInitialize(mixing(rom-digest, salt))
 
-    vmFinalize()
+    repeat nbInstructions
+        VmExec(vm, rom)
+        VmForward(vm)
+
+    VmFinalize()
 ```
 
 Steps:

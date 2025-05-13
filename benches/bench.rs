@@ -5,9 +5,11 @@ use randomx_rs::{RandomXCache, RandomXFlag, RandomXVM};
 fn criterion_benchmark(c: &mut Criterion) {
     const GB: usize = 1_024 * 1_024 * 1_024;
 
-    c.bench_function("hashmaze/initialize", |b| {
-        b.iter(|| Rom::new(b"password", 2 * GB))
-    });
+    // hashmaze/initialize is taking a long time, so set the sample size to the minimum
+    let mut group = c.benchmark_group("hashmaze");
+    group.sample_size(10);
+    group.bench_function("initialize", |b| b.iter(|| Rom::new(b"password", 2 * GB)));
+    group.finish();
 
     let rom = Rom::new(b"password", 2 * GB);
     c.bench_function("hashmaze/hash", |b| {
