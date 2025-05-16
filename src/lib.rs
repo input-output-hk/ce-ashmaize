@@ -198,19 +198,15 @@ impl VM {
     }
 
     pub fn finalize(self) -> [u8; 64] {
-        let data_digest = self.prog_digest.finalize();
-        let mut context = Blake2b::<512>::new().update(&data_digest);
-        context.update_mut(&self.counter.to_le_bytes());
+        let prog_digest = self.prog_digest.finalize();
+        let mem_digest = self.mem_digest.finalize();
+        let mut context = Blake2b::<512>::new()
+            .update(&prog_digest)
+            .update(&mem_digest);
         for r in self.regs {
             context.update_mut(&r.to_le_bytes());
         }
-        context.update_mut(&self.ip.to_le_bytes());
         context.finalize()
-    }
-
-    pub fn special_value64(&self) -> u64 {
-        let r = self.prog_digest.clone().finalize();
-        u64::from_le_bytes(*<&[u8; 8]>::try_from(&r[0..8]).unwrap())
     }
 
     #[allow(dead_code)]
