@@ -57,10 +57,11 @@ impl From<u8> for Instr {
         match value {
             0..32 => Instr::Op3(Op3::Add),
             32..64 => Instr::Op3(Op3::Mul),
-            64..72 => Instr::Op3(Op3::MulH),
-            72..80 => Instr::Op2(Op2::ISqrt),
-            80..90 => Instr::Op3(Op3::Div),
-            90..100 => Instr::Op3(Op3::Mod),
+            64..96 => Instr::Op3(Op3::MulH),
+            96..112 => Instr::Op2(Op2::ISqrt),
+            112..134 => Instr::Op3(Op3::Div),
+            134..152 => Instr::Op3(Op3::Mod),
+            152..192 => Instr::Op2(Op2::BitRev),
             200..208 => Instr::Op3(Op3::Xor),
             208..216 => Instr::Op2(Op2::RotL),
             216..232 => Instr::Op2(Op2::RotR),
@@ -239,14 +240,14 @@ fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
 
     macro_rules! special1_value64 {
         ($vm:ident) => {{
-            let r = vm.prog_digest.clone().finalize();
+            let r = $vm.prog_digest.clone().finalize();
             u64::from_le_bytes(*<&[u8; 8]>::try_from(&r[0..8]).unwrap())
         }};
     }
 
     macro_rules! special2_value64 {
         ($vm:ident) => {{
-            let r = vm.mem_digest.clone().finalize();
+            let r = $vm.mem_digest.clone().finalize();
             u64::from_le_bytes(*<&[u8; 8]>::try_from(&r[0..8]).unwrap())
         }};
     }
