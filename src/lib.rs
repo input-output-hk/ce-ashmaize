@@ -10,6 +10,10 @@ const INSTR_SIZE: usize = 32;
 const NB_REGS: usize = 32; // need to be a power of two
 const REGS_INDEX_MASK: u8 = NB_REGS as u8 - 1;
 
+mod rom;
+
+pub use rom::{Rom, RomDigest};
+
 pub struct VM {
     program: Program,
     regs: [u64; NB_REGS],
@@ -133,31 +137,13 @@ impl VM {
         }
     }
 
-    #[inline]
-    fn post_step(&mut self) {
-        /*
-        let mut context = Blake2b::<512>::new();
-        context.update_mut(&self.counter.to_le_bytes());
-        for r in self.regs {
-            context.update_mut(&r.to_le_bytes());
-        }
-        let r = context.finalize();
-        */
-        //let ip = u32::from_le_bytes(*<&[u8; 4]>::try_from(&r[0..4]).unwrap());
+    pub fn step(&mut self, rom: &Rom) {
+        execute_one_instruction(self, rom);
         self.ip = self.ip.wrapping_add(1);
         self.counter = self.counter.wrapping_add(1);
     }
 
-    pub fn step(&mut self, rom: &Rom) {
-        execute_one_instruction(self, rom);
-        self.post_step();
-    }
-
-    pub fn pre_instructions(&mut self) {
-        // todo
-    }
-
-    pub fn post_instructions(&mut self) {
+    pub fn post_instructions(&mut self, is_final: bool) {
         let mem_digest = self.mem_digest.clone().finalize();
         let mixing_value = Blake2b::<512>::new()
             .update(&mem_digest)
@@ -172,29 +158,18 @@ impl VM {
             }
         }
 
-        self.program.shuffle(&self.prog_digest.clone().finalize());
-
-        /*
-        for (i, regs) in self.regs.chunks_mut(8).enumerate() {
-            let reg_out = Blake2b::<512>::new()
-                .update(&mixing_value)
-                .update(&(i as u32).to_le_bytes())
-                .finalize();
-            for (reg_bytes, reg) in reg_out.chunks(8).zip(regs.iter_mut()) {
-                *reg ^= u64::from_le_bytes(*<&[u8; 8]>::try_from(reg_bytes).unwrap())
-            }
+        if !is_final {
+            self.program.shuffle(&self.prog_digest.clone().finalize());
         }
-        */
 
         self.loop_counter = self.loop_counter.wrapping_add(1)
     }
 
-    pub fn execute(&mut self, rom: &Rom, instr: u32) {
-        self.pre_instructions();
+    pub fn execute(&mut self, rom: &Rom, instr: u32, final_loop: bool) {
         for _ in 0..instr {
             self.step(rom)
         }
-        self.post_instructions()
+        self.post_instructions(final_loop)
     }
 
     pub fn finalize(self) -> [u8; 64] {
@@ -224,127 +199,6 @@ impl VM {
         ));
         out
     }
-}
-
-pub struct RomDigest([u8; 64]);
-
-pub struct Rom {
-    pub digest: RomDigest,
-    data: Vec<u8>,
-}
-
-impl Rom {
-    pub fn new(key: &[u8], pre_size: usize, size: usize) -> Self {
-        let mut data = vec![0; size];
-
-        let seed = blake2b::Context::<256>::new()
-            .update(&(data.len() as u32).to_le_bytes())
-            .update(key)
-            .finalize();
-        let digest = random_gen(pre_size, 4, seed, &mut data);
-
-        Self { digest, data }
-    }
-
-    pub fn at<'a>(&'a self, i: u32) -> &'a [u8; INSTR_SIZE] {
-        let start = (i as usize).wrapping_mul(INSTR_SIZE) % self.data.len();
-        <&[u8; INSTR_SIZE]>::try_from(&self.data[start..start + INSTR_SIZE]).unwrap()
-    }
-}
-
-fn random_gen(
-    pre_size: usize,
-    mixing_numbers: usize,
-    seed: [u8; 32],
-    output: &mut [u8],
-) -> RomDigest {
-    if true {
-        assert!(pre_size.is_power_of_two());
-        let mut mixing_buffer = vec![0; pre_size];
-
-        argon2::hprime(&mut mixing_buffer, &seed);
-
-        fn xorbuf(out: &mut [u8], input: &[u8]) {
-            assert_eq!(out.len(), input.len());
-            assert_eq!(out.len(), 64);
-            /*
-            for (o, i) in out.iter_mut().zip(input.iter()) {
-                *o ^= i;
-            }
-            */
-            let input = input.as_ptr() as *const u64;
-            let out = out.as_mut_ptr() as *mut u64;
-            unsafe {
-                *out.offset(0) ^= *input.offset(0);
-                *out.offset(1) ^= *input.offset(1);
-                *out.offset(2) ^= *input.offset(2);
-                *out.offset(3) ^= *input.offset(3);
-                *out.offset(4) ^= *input.offset(4);
-                *out.offset(5) ^= *input.offset(5);
-                *out.offset(6) ^= *input.offset(6);
-                *out.offset(7) ^= *input.offset(7);
-            }
-        }
-
-        let mut digest = Blake2b::<512>::new();
-
-        let mut offsets_diff = vec![];
-        const OFFSET_LOOPS: u32 = 4;
-        for i in 0u32..OFFSET_LOOPS {
-            let command = Blake2b::<512>::new()
-                .update(&seed)
-                .update(b"generation offset")
-                .update(&i.to_le_bytes())
-                .finalize();
-            let iter = command
-                .chunks(2)
-                .map(|c| u16::from_le_bytes(*<&[u8; 2]>::try_from(c).unwrap()));
-            offsets_diff.extend(iter)
-        }
-        assert_eq!(offsets_diff.len(), 32 * OFFSET_LOOPS as usize);
-
-        let nb_chunks_bytes = output.len() / 64;
-        let mut offsets_bytes = vec![0; nb_chunks_bytes];
-        argon2::hprime(&mut offsets_bytes, &seed);
-
-        let offsets = offsets_bytes;
-        /*
-        let offsets = offsets_bytes
-            .chunks(2)
-            .map(|c| u16::from_le_bytes(*<&[u8; 2]>::try_from(c).unwrap()))
-            .collect::<Vec<_>>();
-            */
-
-        let nb_source_chunks = (pre_size / 64) as u32;
-        for (i, chunk) in output.chunks_mut(64).enumerate() {
-            let start_idx = offsets[i % offsets.len()] as u32 % nb_source_chunks;
-
-            // mixing_buffer % pre_size
-            for d in 0..mixing_numbers {
-                let idx = if d > 0 {
-                    start_idx.wrapping_add(offsets_diff[(d - 1) % offsets_diff.len()] as u32)
-                        % nb_source_chunks
-                } else {
-                    (i as u32) % nb_source_chunks
-                };
-                let offset = (idx as usize).wrapping_mul(64);
-                let input = &mixing_buffer[offset..offset + 64];
-                xorbuf(chunk, input);
-            }
-
-            digest.update_mut(chunk);
-        }
-        RomDigest(digest.finalize())
-    } else {
-        argon2::hprime(output, &seed);
-        let digest = RomDigest(Blake2b::<512>::new().update(&output).finalize());
-        digest
-    }
-    /*
-    use cryptoxide::drg;
-    let mut drg = drg::chacha::trg::<8>::new(&seed);
-    drg.fill_slice(output);
-    */
 }
 
 pub struct Program {
@@ -477,8 +331,9 @@ fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
 
 pub fn hash(salt: &[u8], rom: &Rom, nb_loops: u32, nb_instrs: u32) -> [u8; 64] {
     let mut vm = VM::new(&rom.digest, nb_instrs, salt);
-    for _ in 0..nb_loops {
-        vm.execute(&rom, nb_instrs);
+    for i in 0..nb_loops {
+        let final_loop = i == nb_loops - 1;
+        vm.execute(&rom, nb_instrs, final_loop);
     }
     vm.finalize()
 }
@@ -521,36 +376,5 @@ mod tests {
 
         let h = hash(b"hello", &rom, 8, NB_INSTR);
         println!("{:?}", h);
-    }
-
-    #[test]
-    fn rom_random_distribution() {
-        let mut distribution = [0; 256];
-
-        const SIZE: usize = 10 * 1_024 * 1_024;
-
-        let rom = Rom::new(b"password", 256 * 1024, SIZE);
-
-        for byte in rom.data {
-            let index = byte as usize;
-            distribution[index] += 1;
-        }
-
-        const R: usize = 2; // expect 2% range difference with the perfect average
-        const AVG: usize = SIZE / 256;
-        const MIN: usize = AVG * (100 - R) / 100;
-        const MAX: usize = AVG * (100 + R) / 100;
-
-        dbg!(&distribution);
-        dbg!(MIN);
-        dbg!(AVG);
-        dbg!(MAX);
-
-        assert!(
-            distribution
-                .iter()
-                .take(u8::MAX as usize)
-                .all(|&count| count > MIN && count < MAX)
-        );
     }
 }
