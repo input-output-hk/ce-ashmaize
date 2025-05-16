@@ -172,6 +172,8 @@ impl VM {
             }
         }
 
+        self.program.shuffle(&self.prog_digest.clone().finalize());
+
         /*
         for (i, regs) in self.regs.chunks_mut(8).enumerate() {
             let reg_out = Blake2b::<512>::new()
@@ -363,6 +365,10 @@ impl Program {
     pub fn at<'a>(&'a self, i: u32) -> &'a [u8; INSTR_SIZE] {
         let start = (i as usize).wrapping_mul(INSTR_SIZE) % self.instructions.len();
         <&[u8; INSTR_SIZE]>::try_from(&self.instructions[start..start + INSTR_SIZE]).unwrap()
+    }
+
+    pub fn shuffle(&mut self, seed: &[u8]) {
+        argon2::hprime(&mut self.instructions, seed)
     }
 }
 
