@@ -10,13 +10,22 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("ashmaize");
     group.sample_size(10);
     group.bench_function("initialize", |b| {
-        b.iter(|| Rom::new(b"password", 128 * MB, 2 * GB))
+        b.iter(|| Rom::new(b"password", 16 * MB, 2 * GB))
     });
     group.finish();
 
-    let rom = Rom::new(b"password", 128 * MB, 2 * GB);
-    c.bench_function("ashmaize/hash", |b| {
-        b.iter(|| ashmaize::hash(b"salt", &rom, 2048))
+    let rom = Rom::new(b"password", 16 * MB, 2 * GB);
+    c.bench_function("ashmaize/hash-1", |b| {
+        b.iter(|| ashmaize::hash(b"salt", &rom, 8, 256))
+    });
+    c.bench_function("ashmaize/hash-2", |b| {
+        b.iter(|| ashmaize::hash(b"salt2", &rom, 8, 256))
+    });
+    c.bench_function("ashmaize/hash-3", |b| {
+        b.iter(|| ashmaize::hash(b"salt3", &rom, 8, 256))
+    });
+    c.bench_function("ashmaize/hash-4", |b| {
+        b.iter(|| ashmaize::hash(b"salt4", &rom, 8, 256))
     });
 
     c.bench_function("RandomX/initialize", |b| {
