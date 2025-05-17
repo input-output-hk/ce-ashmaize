@@ -9,6 +9,8 @@ cryptoxide = { version = "0.5", git = "https://github.com/typed-io/cryptoxide" }
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
 randomx-rs = "1.3.2"
+hex = "0.4"
+indicatif = "0.17"
 
 [[bench]]
 name = "bench"

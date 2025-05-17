@@ -6,8 +6,9 @@ use cryptoxide::{
 // 1 byte operator
 // 3 bytes operands (src1, src2, dst)
 // 28 bytes data
-const INSTR_SIZE: usize = 32;
-const NB_REGS: usize = 32; // need to be a power of two
+const INSTR_SIZE: usize = 20;
+const NB_REGS: usize = 1 << REGS_BITS;
+const REGS_BITS: usize = 5;
 const REGS_INDEX_MASK: u8 = NB_REGS as u8 - 1;
 
 mod rom;
@@ -76,7 +77,6 @@ impl From<u8> for Instr {
 pub enum Operand {
     Reg,
     Memory,
-    Ip,
     Literal,
     Special1,
     Special2,
@@ -84,13 +84,13 @@ pub enum Operand {
 
 impl From<u8> for Operand {
     fn from(value: u8) -> Self {
+        assert!(value <= 0x0f);
         match value {
-            0..100 => Self::Reg,
-            100..200 => Self::Memory,
-            200..240 => Self::Literal,
-            240..250 => Self::Ip,
-            250..253 => Self::Special1,
-            253..=255 => Self::Special2,
+            0..5 => Self::Reg,
+            5..9 => Self::Memory,
+            9..13 => Self::Literal,
+            13..14 => Self::Special1,
+            14.. => Self::Special2,
         }
     }
 }
@@ -208,7 +208,8 @@ pub struct Program {
 
 impl Program {
     pub fn new(seed: &[u8], nb_instrs: u32) -> Self {
-        let mut instructions = vec![0; nb_instrs as usize * INSTR_SIZE];
+        let size = nb_instrs as usize * INSTR_SIZE;
+        let mut instructions = vec![0; size];
         argon2::hprime(&mut instructions, &seed);
         Self { instructions }
     }
@@ -225,7 +226,6 @@ impl Program {
 
 fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
     let prog_chunk = *vm.program.at(vm.ip);
-    let opcode = Instr::from(prog_chunk[0]);
 
     macro_rules! mem_access64 {
         ($vm:ident, $rom:ident, $addr:ident) => {{
@@ -252,26 +252,31 @@ fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
         }};
     }
 
+    let opcode = Instr::from(prog_chunk[0]);
+    let op1 = Operand::from(prog_chunk[1] & 0x0f);
+    let op2 = Operand::from(prog_chunk[1] >> 4);
+
+    let r1 = prog_chunk[2] & REGS_INDEX_MASK;
+    let r2 = prog_chunk[3] & REGS_INDEX_MASK;
+    // pull 3 bits from [2] and 2 bits from [3] for 5 bits
+    let r3 = prog_chunk[2] >> REGS_BITS | ((prog_chunk[3] >> REGS_BITS & 0b011) << 3);
+    assert_eq!(r3, r3 & REGS_INDEX_MASK);
+
+    let lit1 = u64::from_le_bytes(*<&[u8; 8]>::try_from(&prog_chunk[4..12]).unwrap());
+    let lit2 = u64::from_le_bytes(*<&[u8; 8]>::try_from(&prog_chunk[12..20]).unwrap());
+
     match opcode {
         Instr::Op3(operator) => {
-            let op1 = Operand::from(prog_chunk[1]);
-            let op2 = Operand::from(prog_chunk[2]);
-
-            let lit1 = u64::from_le_bytes(*<&[u8; 8]>::try_from(&prog_chunk[4..12]).unwrap());
-            let lit2 = u64::from_le_bytes(*<&[u8; 8]>::try_from(&prog_chunk[12..20]).unwrap());
-
             let src1 = match op1 {
-                Operand::Reg => vm.regs[(prog_chunk[4] & REGS_INDEX_MASK) as usize],
+                Operand::Reg => vm.regs[r1 as usize],
                 Operand::Memory => mem_access64!(vm, rom, lit1),
-                Operand::Ip => vm.ip as u64,
                 Operand::Literal => lit1,
                 Operand::Special1 => special1_value64!(vm),
                 Operand::Special2 => special2_value64!(vm),
             };
             let src2 = match op2 {
-                Operand::Reg => vm.regs[(prog_chunk[12] & REGS_INDEX_MASK) as usize],
+                Operand::Reg => vm.regs[r2 as usize],
                 Operand::Memory => mem_access64!(vm, rom, lit2),
-                Operand::Ip => vm.ip as u64,
                 Operand::Literal => lit2,
                 Operand::Special1 => special1_value64!(vm),
                 Operand::Special2 => special2_value64!(vm),
@@ -280,8 +285,8 @@ fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
             let result = match operator {
                 Op3::Add => src1.wrapping_add(src2),
                 Op3::Mul => src1.wrapping_mul(src2),
-                Op3::Xor => src1 ^ src2,
                 Op3::MulH => ((src1 as u128 * src2 as u128) >> 64) as u64,
+                Op3::Xor => src1 ^ src2,
                 Op3::Div => {
                     if src2 == 0 {
                         special1_value64!(vm)
@@ -298,33 +303,25 @@ fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
                 }
             };
 
-            vm.regs[(prog_chunk[12] & REGS_INDEX_MASK) as usize] = result;
+            vm.regs[r3 as usize] = result;
         }
         Instr::Op2(operator) => {
-            let op1 = Operand::from(prog_chunk[1]);
-
-            let lit1 = u64::from_le_bytes(*<&[u8; 8]>::try_from(&prog_chunk[4..12]).unwrap());
-
             let src = match op1 {
-                Operand::Reg => vm.regs[(prog_chunk[4] & REGS_INDEX_MASK) as usize],
+                Operand::Reg => vm.regs[r1 as usize],
                 Operand::Memory => mem_access64!(vm, rom, lit1),
-                Operand::Ip => vm.ip as u64,
-                Operand::Literal => {
-                    u64::from_le_bytes(*<&[u8; 8]>::try_from(&prog_chunk[4..12]).unwrap())
-                }
+                Operand::Literal => lit1,
                 Operand::Special1 => special1_value64!(vm),
                 Operand::Special2 => special2_value64!(vm),
             };
 
             let result = match operator {
                 Op2::Neg => !src,
-                Op2::RotL => src.rotate_left(1),
-                Op2::RotR => src.rotate_right(1),
+                Op2::RotL => src.rotate_left(r1 as u32),
+                Op2::RotR => src.rotate_right(r1 as u32),
                 Op2::ISqrt => src.isqrt(),
                 Op2::BitRev => src.reverse_bits(),
             };
-
-            vm.regs[(prog_chunk[12] & REGS_INDEX_MASK) as usize] = result;
+            vm.regs[r3 as usize] = result;
         }
     }
     vm.prog_digest.update_mut(&prog_chunk);
