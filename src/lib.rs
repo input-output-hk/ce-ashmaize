@@ -118,7 +118,6 @@ impl VM {
             }
             context.finalize()
         };
-        //let ip = u32::from_le_bytes(*<&[u8; 4]>::try_from(&reg_digest[0..4]).unwrap());
 
         let program = Program::new(&seed, nb_instrs);
 
@@ -142,8 +141,10 @@ impl VM {
     }
 
     pub fn post_instructions(&mut self, is_final: bool) {
+        let prog_digest = self.prog_digest.clone().finalize();
         let mem_digest = self.mem_digest.clone().finalize();
         let mixing_value = Blake2b::<512>::new()
+            .update(&prog_digest)
             .update(&mem_digest)
             .update(&self.loop_counter.to_le_bytes())
             .finalize();
@@ -157,7 +158,7 @@ impl VM {
         }
 
         if !is_final {
-            self.program.shuffle(&self.prog_digest.clone().finalize());
+            self.program.shuffle(&prog_digest)
         }
 
         self.loop_counter = self.loop_counter.wrapping_add(1)
@@ -375,7 +376,7 @@ mod tests {
         const PRE_SIZE: usize = 16 * 1024;
         const SIZE: usize = 10 * 1024 * 1024;
         const NB_INSTR: u32 = 256;
-        const EXPECTED: &str = "cfee1d5872fadfd859fe452c006fffa532178764371215e4e1c4be2fbbf0b6350a0199725aba7df090cee93632d8e616c9bd2725e3e0838ec2bc8bd65a923c18";
+        const EXPECTED: &str = "796f154a30306b4a8d5169498577c91dd4613b44d972b3382c3736d2800ede16da7c60b0602612b5b43aa20f17dde3c0a182d5bf80cfeca2cb295d0947d8013b";
 
         let rom = Rom::new(b"123", PRE_SIZE, SIZE);
 
