@@ -21,7 +21,6 @@ pub struct VM {
     ip: u32,
     prog_digest: blake2b::Context<512>,
     mem_digest: blake2b::Context<512>,
-    counter: u32,
     memory_counter: u32,
     loop_counter: u32,
 }
@@ -132,7 +131,6 @@ impl VM {
             ip: 0,
             prog_digest,
             mem_digest,
-            counter: 0,
             loop_counter: 0,
             memory_counter: 0,
         }
@@ -141,7 +139,6 @@ impl VM {
     pub fn step(&mut self, rom: &Rom) {
         execute_one_instruction(self, rom);
         self.ip = self.ip.wrapping_add(1);
-        self.counter = self.counter.wrapping_add(1);
     }
 
     pub fn post_instructions(&mut self, is_final: bool) {
@@ -194,10 +191,7 @@ impl VM {
                 out.push_str("\n");
             }
         }
-        out.push_str(&format!(
-            "ip {:08x} counter {:08x}\n",
-            self.ip, self.counter
-        ));
+        out.push_str(&format!("ip {:08x}\n", self.ip,));
         out
     }
 }
