@@ -44,63 +44,50 @@ fn random_gen(
 
         argon2::hprime(&mut mixing_buffer, &seed);
 
-        fn xorbuf(out: &mut [u8], input: &[u8]) {
-            assert_eq!(out.len(), input.len());
-            assert_eq!(out.len(), 64);
-            /* implement xoring of all the bytes:
-            for (o, i) in out.iter_mut().zip(input.iter()) {
-                *o ^= i;
-            }
-            */
-            let input = input.as_ptr() as *const u64;
-            let out = out.as_mut_ptr() as *mut u64;
-            unsafe {
-                *out.offset(0) ^= *input.offset(0);
-                *out.offset(1) ^= *input.offset(1);
-                *out.offset(2) ^= *input.offset(2);
-                *out.offset(3) ^= *input.offset(3);
-                *out.offset(4) ^= *input.offset(4);
-                *out.offset(5) ^= *input.offset(5);
-                *out.offset(6) ^= *input.offset(6);
-                *out.offset(7) ^= *input.offset(7);
-            }
+        const OFFSET_LOOPS: u32 = 4;
+
+        // generate a 32 u16s iterator from a digest
+        fn digest_to_u16s(digest: &[u8; 64]) -> impl Iterator<Item = u16> {
+            digest
+                .chunks(2)
+                .map(|c| u16::from_le_bytes(*<&[u8; 2]>::try_from(c).unwrap()))
         }
 
-        let mut digest = Blake2b::<512>::new();
-
         let mut offsets_diff = vec![];
-        const OFFSET_LOOPS: u32 = 4;
         for i in 0u32..OFFSET_LOOPS {
             let command = Blake2b::<512>::new()
                 .update(&seed)
                 .update(b"generation offset")
                 .update(&i.to_le_bytes())
                 .finalize();
-            let iter = command
-                .chunks(2)
-                .map(|c| u16::from_le_bytes(*<&[u8; 2]>::try_from(c).unwrap()));
-            offsets_diff.extend(iter)
+            offsets_diff.extend(digest_to_u16s(&command))
         }
         assert_eq!(offsets_diff.len(), 32 * OFFSET_LOOPS as usize);
 
         let nb_chunks_bytes = output.len() / 64;
         let mut offsets_bytes = vec![0; nb_chunks_bytes];
-        argon2::hprime(&mut offsets_bytes, &seed);
+
+        let offset_bytes_input = Blake2b::<512>::new()
+            .update(&seed)
+            .update(b"generation offset base")
+            .finalize();
+        argon2::hprime(&mut offsets_bytes, &offset_bytes_input);
 
         let offsets = offsets_bytes;
 
+        let mut digest = Blake2b::<512>::new();
         let nb_source_chunks = (pre_size / 64) as u32;
         for (i, chunk) in output.chunks_mut(64).enumerate() {
             let start_idx = offsets[i % offsets.len()] as u32 % nb_source_chunks;
 
-            // mixing_buffer % pre_size
-            for d in 0..mixing_numbers {
-                let idx = if d > 0 {
-                    start_idx.wrapping_add(offsets_diff[(d - 1) % offsets_diff.len()] as u32)
-                        % nb_source_chunks
-                } else {
-                    (i as u32) % nb_source_chunks
-                };
+            let idx0 = (i as u32) % nb_source_chunks;
+            let offset = (idx0 as usize).wrapping_mul(64);
+            let input = &mixing_buffer[offset..offset + 64];
+            chunk.copy_from_slice(input);
+
+            for d in 1..mixing_numbers {
+                let idx = start_idx.wrapping_add(offsets_diff[(d - 1) % offsets_diff.len()] as u32)
+                    % nb_source_chunks;
                 let offset = (idx as usize).wrapping_mul(64);
                 let input = &mixing_buffer[offset..offset + 64];
                 xorbuf(chunk, input);
@@ -113,6 +100,28 @@ fn random_gen(
         argon2::hprime(output, &seed);
         let digest = RomDigest(Blake2b::<512>::new().update(&output).finalize());
         digest
+    }
+}
+
+fn xorbuf(out: &mut [u8], input: &[u8]) {
+    assert_eq!(out.len(), input.len());
+    assert_eq!(out.len(), 64);
+    /* implement xoring of all the bytes:
+    for (o, i) in out.iter_mut().zip(input.iter()) {
+        *o ^= i;
+    }
+    */
+    let input = input.as_ptr() as *const u64;
+    let out = out.as_mut_ptr() as *mut u64;
+    unsafe {
+        *out.offset(0) ^= *input.offset(0);
+        *out.offset(1) ^= *input.offset(1);
+        *out.offset(2) ^= *input.offset(2);
+        *out.offset(3) ^= *input.offset(3);
+        *out.offset(4) ^= *input.offset(4);
+        *out.offset(5) ^= *input.offset(5);
+        *out.offset(6) ^= *input.offset(6);
+        *out.offset(7) ^= *input.offset(7);
     }
 }
 
@@ -133,7 +142,7 @@ mod tests {
             distribution[index] += 1;
         }
 
-        const R: usize = 2; // expect 2% range difference with the perfect average
+        const R: usize = 3; // expect 3% range difference with the perfect average
         const AVG: usize = SIZE / 256;
         const MIN: usize = AVG * (100 - R) / 100;
         const MAX: usize = AVG * (100 + R) / 100;

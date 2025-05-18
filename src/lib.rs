@@ -253,14 +253,13 @@ fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
     }
 
     let opcode = Instr::from(prog_chunk[0]);
-    let op1 = Operand::from(prog_chunk[1] & 0x0f);
-    let op2 = Operand::from(prog_chunk[1] >> 4);
+    let op1 = Operand::from(prog_chunk[1] >> 4);
+    let op2 = Operand::from(prog_chunk[1] & 0x0f);
 
-    let r1 = prog_chunk[2] & REGS_INDEX_MASK;
-    let r2 = prog_chunk[3] & REGS_INDEX_MASK;
-    // pull 3 bits from [2] and 2 bits from [3] for 5 bits
-    let r3 = prog_chunk[2] >> REGS_BITS | ((prog_chunk[3] >> REGS_BITS & 0b011) << 3);
-    assert_eq!(r3, r3 & REGS_INDEX_MASK);
+    let rs = ((prog_chunk[2] as u16) << 8) | (prog_chunk[3] as u16);
+    let r1 = ((rs >> (2 * REGS_BITS)) as u8) & REGS_INDEX_MASK;
+    let r2 = ((rs >> (1 * REGS_BITS)) as u8) & REGS_INDEX_MASK;
+    let r3 = (rs as u8) & REGS_INDEX_MASK;
 
     let lit1 = u64::from_le_bytes(*<&[u8; 8]>::try_from(&prog_chunk[4..12]).unwrap());
     let lit2 = u64::from_le_bytes(*<&[u8; 8]>::try_from(&prog_chunk[12..20]).unwrap());
@@ -306,7 +305,7 @@ fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
             vm.regs[r3 as usize] = result;
         }
         Instr::Op2(operator) => {
-            let src = match op1 {
+            let src1 = match op1 {
                 Operand::Reg => vm.regs[r1 as usize],
                 Operand::Memory => mem_access64!(vm, rom, lit1),
                 Operand::Literal => lit1,
@@ -315,11 +314,11 @@ fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
             };
 
             let result = match operator {
-                Op2::Neg => !src,
-                Op2::RotL => src.rotate_left(r1 as u32),
-                Op2::RotR => src.rotate_right(r1 as u32),
-                Op2::ISqrt => src.isqrt(),
-                Op2::BitRev => src.reverse_bits(),
+                Op2::Neg => !src1,
+                Op2::RotL => src1.rotate_left(r1 as u32),
+                Op2::RotR => src1.rotate_right(r1 as u32),
+                Op2::ISqrt => src1.isqrt(),
+                Op2::BitRev => src1.reverse_bits(),
             };
             vm.regs[r3 as usize] = result;
         }
@@ -367,12 +366,31 @@ mod tests {
 
     #[test]
     fn test() {
+        const PRE_SIZE: usize = 16 * 1024;
         const SIZE: usize = 10 * 1024 * 1024;
         const NB_INSTR: u32 = 256;
 
-        let rom = Rom::new(b"123", 1024, SIZE);
+        let rom = Rom::new(b"123", PRE_SIZE, SIZE);
 
         let h = hash(b"hello", &rom, 8, NB_INSTR);
         println!("{:?}", h);
+    }
+
+    #[test]
+    fn test_eq() {
+        const PRE_SIZE: usize = 16 * 1024;
+        const SIZE: usize = 10 * 1024 * 1024;
+        const NB_INSTR: u32 = 256;
+        const EXPECTED: &str = "cfee1d5872fadfd859fe452c006fffa532178764371215e4e1c4be2fbbf0b6350a0199725aba7df090cee93632d8e616c9bd2725e3e0838ec2bc8bd65a923c18";
+
+        let rom = Rom::new(b"123", PRE_SIZE, SIZE);
+
+        let h = hash(b"hello", &rom, 8, NB_INSTR);
+        let expected = {
+            let mut h2 = [0; 64];
+            hex::decode_to_slice(EXPECTED, &mut h2).unwrap();
+            h2
+        };
+        assert_eq!(h, expected, "hash is: {}", hex::encode(h))
     }
 }
