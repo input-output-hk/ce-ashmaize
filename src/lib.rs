@@ -13,7 +13,7 @@ const REGS_INDEX_MASK: u8 = NB_REGS as u8 - 1;
 
 mod rom;
 
-pub use rom::{Rom, RomDigest};
+pub use rom::{Rom, RomDigest, RomGenerationType};
 
 pub struct VM {
     program: Program,
@@ -336,7 +336,14 @@ mod tests {
 
     #[test]
     fn instruction_count_diff() {
-        let rom = Rom::new(b"password1", 1024, 10_240);
+        let rom = Rom::new(
+            b"password1",
+            RomGenerationType::TwoStep {
+                pre_size: 1024,
+                mixing_numbers: 4,
+            },
+            10_240,
+        );
 
         let h1 = hash(&0u128.to_be_bytes(), &rom, 8, 128);
         let h2 = hash(&0u128.to_be_bytes(), &rom, 8, 129);
@@ -365,7 +372,14 @@ mod tests {
         const SIZE: usize = 10 * 1024 * 1024;
         const NB_INSTR: u32 = 256;
 
-        let rom = Rom::new(b"123", PRE_SIZE, SIZE);
+        let rom = Rom::new(
+            b"123",
+            RomGenerationType::TwoStep {
+                pre_size: PRE_SIZE,
+                mixing_numbers: 4,
+            },
+            SIZE,
+        );
 
         let h = hash(b"hello", &rom, 8, NB_INSTR);
         println!("{:?}", h);
@@ -378,7 +392,14 @@ mod tests {
         const NB_INSTR: u32 = 256;
         const EXPECTED: &str = "796f154a30306b4a8d5169498577c91dd4613b44d972b3382c3736d2800ede16da7c60b0602612b5b43aa20f17dde3c0a182d5bf80cfeca2cb295d0947d8013b";
 
-        let rom = Rom::new(b"123", PRE_SIZE, SIZE);
+        let rom = Rom::new(
+            b"123",
+            RomGenerationType::TwoStep {
+                pre_size: PRE_SIZE,
+                mixing_numbers: 4,
+            },
+            SIZE,
+        );
 
         let h = hash(b"hello", &rom, 8, NB_INSTR);
         let expected = {

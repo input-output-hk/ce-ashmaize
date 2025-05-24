@@ -20,29 +20,18 @@ pub enum Result {
 
 fn spin(params: GlobalParams, prefix: u128, sender: Sender<Result>) {
     let mut salt = 0u128;
+    const CHUNKS_SIZE: usize = 0xff;
 
     loop {
         let salt_bytes = (prefix | salt).to_le_bytes();
 
         let h = hash(&salt_bytes, &params.rom, 8, 256);
 
-        //pb.set_position(salt as u64);
-
         if hash_structure_good(&h, params.prefix) {
-            //println!("hash: {}", hex::encode(h));
             sender.send(Result::Found(prefix | salt)).unwrap();
         }
-
-        if salt & 0xff == 0 {
-            sender.send(Result::Progress(0xff)).unwrap();
-            //println!("not hash: {} salt {}", hex::encode(h), salt);
-            /*
-            let elapsed = start_loop.elapsed().unwrap().as_secs_f64();
-            let current_speed = (salt as f64) / elapsed;
-
-            // Update the message with the current speed
-            pb.set_message(format!("Speed: {:.2} hash/s", current_speed));
-            */
+        if salt & (CHUNKS_SIZE as u128) == 0 {
+            sender.send(Result::Progress(CHUNKS_SIZE)).unwrap();
         }
 
         salt += 1;
@@ -58,7 +47,15 @@ fn main() {
     let key = b"key";
 
     thread::scope(|s| {
-        let rom = Rom::new(key, 16 * MB, 1 * GB);
+        println!("Generating ROM ...");
+        let rom = Rom::new(
+            key,
+            RomGenerationType::TwoStep {
+                pre_size: 16 * MB,
+                mixing_numbers: 4,
+            },
+            1 * GB,
+        );
 
         let params = GlobalParams {
             prefix: 16,
@@ -78,8 +75,8 @@ fn main() {
 
             let params = params.clone();
             let sender = sender.clone();
+            println!("starting thread {} : {:032x}", thread_id, prefix);
             s.spawn(move || {
-                println!("starting thread {} : {:x}", thread_id, prefix);
                 spin(params, prefix, sender)
                 //
             });
@@ -120,19 +117,6 @@ fn main() {
             }
         }
     });
-
-    let finished = SystemTime::now();
-    //let duration = finished.duration_since(start_loop).unwrap();
-
-    /*
-    println!(
-        "found candidate for {} 0-bits prefix {:032x} in {}.{:06}",
-        prefix_bits,
-        salt,
-        duration.as_secs(),
-        duration.subsec_micros()
-    )
-    */
 }
 
 fn hash_structure_good(hash: &[u8], zero_bits: usize) -> bool {

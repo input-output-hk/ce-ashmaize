@@ -1,4 +1,4 @@
-use ashmaize::Rom;
+use ashmaize::{Rom, RomGenerationType};
 use criterion::{Criterion, criterion_group, criterion_main};
 use randomx_rs::{RandomXCache, RandomXFlag, RandomXVM};
 
@@ -10,11 +10,27 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("ashmaize");
     group.sample_size(10);
     group.bench_function("initialize", |b| {
-        b.iter(|| Rom::new(b"password", 16 * MB, 2 * GB))
+        b.iter(|| {
+            Rom::new(
+                b"password",
+                RomGenerationType::TwoStep {
+                    pre_size: 16 * MB,
+                    mixing_numbers: 4,
+                },
+                2 * GB,
+            )
+        })
     });
     group.finish();
 
-    let rom = Rom::new(b"password", 16 * MB, 2 * GB);
+    let rom = Rom::new(
+        b"password",
+        RomGenerationType::TwoStep {
+            pre_size: 16 * MB,
+            mixing_numbers: 4,
+        },
+        2 * GB,
+    );
     c.bench_function("ashmaize/hash-1", |b| {
         b.iter(|| ashmaize::hash(b"salt", &rom, 8, 256))
     });

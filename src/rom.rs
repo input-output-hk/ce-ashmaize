@@ -12,15 +12,25 @@ pub struct Rom {
     data: Vec<u8>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum RomGenerationType {
+    FullRandom,
+    TwoStep {
+        pre_size: usize,
+        // number of chunks to randomly combine (e.g. 4)
+        mixing_numbers: usize,
+    },
+}
+
 impl Rom {
-    pub fn new(key: &[u8], pre_size: usize, size: usize) -> Self {
+    pub fn new(key: &[u8], gen_type: RomGenerationType, size: usize) -> Self {
         let mut data = vec![0; size];
 
         let seed = blake2b::Context::<256>::new()
             .update(&(data.len() as u32).to_le_bytes())
             .update(key)
             .finalize();
-        let digest = random_gen(pre_size, 4, seed, &mut data);
+        let digest = random_gen(gen_type, seed, &mut data);
 
         Self { digest, data }
     }
@@ -32,13 +42,12 @@ impl Rom {
     }
 }
 
-fn random_gen(
-    pre_size: usize,
-    mixing_numbers: usize,
-    seed: [u8; 32],
-    output: &mut [u8],
-) -> RomDigest {
-    if true {
+fn random_gen(gen_type: RomGenerationType, seed: [u8; 32], output: &mut [u8]) -> RomDigest {
+    if let RomGenerationType::TwoStep {
+        pre_size,
+        mixing_numbers,
+    } = gen_type
+    {
         assert!(pre_size.is_power_of_two());
         let mut mixing_buffer = vec![0; pre_size];
 
@@ -135,7 +144,14 @@ mod tests {
 
         const SIZE: usize = 10 * 1_024 * 1_024;
 
-        let rom = Rom::new(b"password", 256 * 1024, SIZE);
+        let rom = Rom::new(
+            b"password",
+            RomGenerationType::TwoStep {
+                pre_size: 256 * 1024,
+                mixing_numbers: 4,
+            },
+            SIZE,
+        );
 
         for byte in rom.data {
             let index = byte as usize;
