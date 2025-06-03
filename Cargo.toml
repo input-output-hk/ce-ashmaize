@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cryptoxide = { version = "0.5", git = "https://github.com/typed-io/cryptoxide" }
+cryptoxide = "0.5"
 
 [dev-dependencies]
-criterion = { version = "0.5.1", features = ["html_reports"] }
-randomx-rs = "1.3.2"
+criterion = { version = "0.5", features = ["html_reports"] }
+randomx-rs = "1.3"
 hex = "0.4"
 indicatif = "0.17"
 getrandom = "0.3"
