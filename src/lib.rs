@@ -1,7 +1,48 @@
+/*!
+# Ashmaize: a widely portable ASIC resistant hash algorithm
+
+AshMaize is a simple PoW that is somewhat ASIC resistant, yet relative simple to implement
+
+# How to use
+
+## The [`Rom`]
+
+First you need to initialise the [`Rom`]. It is the _Read Only Memory_
+and it is generated once and can be reused for different hash program.
+
+```
+use ashmaize::{Rom, RomGenerationType};
+
+let rom = Rom::new(b"seed", RomGenerationType::FullRandom, 16 * 1_024);
+```
+
+## [`hash`]
+
+Now you can use the [`hash`] function to execute a random program against
+the [`Rom`] that will generate a Digest.
+
+```
+use ashmaize::hash;
+# use ashmaize::{Rom, RomGenerationType};
+# let rom = Rom::new(b"seed", RomGenerationType::FullRandom, 16 * 1_024);
+
+let digest = hash(b"salt", &rom, 8, 256);
+# assert_eq!(
+#      digest,
+#      [52, 144, 178, 238, 104, 147, 129, 51, 168, 174, 194, 213, 40, 196, 133, 235, 134, 84, 138, 170, 12, 150, 21, 246, 99, 184, 129, 38, 212, 71, 29, 48, 2, 37, 3, 154, 205, 26, 154, 92, 51, 160, 39, 151, 223, 236, 207, 136, 172, 255, 86, 91, 232, 229, 45, 81, 172, 111, 44, 245, 19, 51, 120, 112],
+# );```
+
+*/
+
+mod rom;
+
 use cryptoxide::{
     hashing::blake2b::{self, Blake2b},
     kdf::argon2,
 };
+
+use self::rom::RomDigest;
+pub use self::rom::{Rom, RomGenerationType};
 
 // 1 byte operator
 // 3 bytes operands (src1, src2, dst)
@@ -11,11 +52,7 @@ const NB_REGS: usize = 1 << REGS_BITS;
 const REGS_BITS: usize = 5;
 const REGS_INDEX_MASK: u8 = NB_REGS as u8 - 1;
 
-mod rom;
-
-use self::rom::RomDigest;
-pub use self::rom::{Rom, RomGenerationType};
-
+/// The `Ashmaze`'s virtual machine
 struct VM {
     program: Program,
     regs: [u64; NB_REGS],
@@ -322,6 +359,23 @@ fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
     vm.prog_digest.update_mut(&prog_chunk);
 }
 
+/// For the given [`Rom`] and parameter, compute the digest of the given `salt`
+///
+/// # Example
+///
+/// ```
+/// # use ashmaize::{Rom, RomGenerationType, hash};
+/// # const KB: usize = 1_024;
+/// # let rom = Rom::new(b"seed", RomGenerationType::FullRandom, 16 * KB);
+/// const NB_LOOPS: u32 = 8;
+/// const NB_INSTRS: u32 = 256;
+/// let digest = hash(b"salt", &rom, NB_LOOPS, NB_INSTRS);
+/// # assert_eq!(
+/// #      digest,
+/// #      [52, 144, 178, 238, 104, 147, 129, 51, 168, 174, 194, 213, 40, 196, 133, 235, 134, 84, 138, 170, 12, 150, 21, 246, 99, 184, 129, 38, 212, 71, 29, 48, 2, 37, 3, 154, 205, 26, 154, 92, 51, 160, 39, 151, 223, 236, 207, 136, 172, 255, 86, 91, 232, 229, 45, 81, 172, 111, 44, 245, 19, 51, 120, 112],
+/// # );
+/// ```
+///
 pub fn hash(salt: &[u8], rom: &Rom, nb_loops: u32, nb_instrs: u32) -> [u8; 64] {
     let mut vm = VM::new(&rom.digest, nb_instrs, salt);
     for i in 0..nb_loops {

@@ -7,22 +7,72 @@ pub const DATASET_ACCESS_SIZE: usize = 64;
 
 pub(crate) struct RomDigest(pub(crate) [u8; 64]);
 
+/// The **R**ead **O**only **M**emory used to generate the proram.
+///
+/// The **ROM** is a read-only memory that contains a random program.
+/// The program is generated using a random seed and a random generation type.
+/// The random generation type can be either [`RomGenerationType::FullRandom`] or [`RomGenerationType::TwoStep`].
+///
+/// [`hash`]: crate::hash
 pub struct Rom {
     pub(crate) digest: RomDigest,
     data: Vec<u8>,
 }
 
+/// The generation type of the **ROM**.
+///
+/// This is used to drive the generation of the **ROM**. It can be
+/// either fully random or use a two step approach.
+///
 #[derive(Clone, Copy, Debug)]
 pub enum RomGenerationType {
+    /// this is the simplest approach and it uses a blake2b to
+    /// generate the whole ROM. However it is slower than the
+    /// [`TwoSetp`] option
     FullRandom,
+    /// This option is faster to execute and not necessarily
+    /// weaker than [`FullRandom`].
     TwoStep {
+        /// the pre-memory size
+        ///
+        /// This must be a power of `2` otherwise it will triger
+        /// a panic during execution
         pre_size: usize,
-        // number of chunks to randomly combine (e.g. 4)
+        /// number of chunks to randomly combine (e.g. 4)
         mixing_numbers: usize,
     },
 }
 
 impl Rom {
+    /// create a new [`Rom`] using the given data as `key` to initilise
+    /// the _seed_ that will be used for the [`Rom`] generation
+    ///
+    /// This function is deterministic and will produce the same outputs
+    /// for the same given inputs.
+    ///
+    /// # Panic
+    ///
+    /// this function may panic if the `pre_size` field in [`RomGenerationType::TwoStep`]
+    /// is not a power of `2`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ashmaize::{Rom, RomGenerationType};
+    /// # const KB: usize = 1_024;
+    /// let rom = Rom::new(b"seed", RomGenerationType::FullRandom, 256 * KB);
+    /// ```
+    ///
+    /// ```
+    /// # use ashmaize::{Rom, RomGenerationType};
+    /// # const KB: usize = 1_024;
+    /// let gen_type = RomGenerationType::TwoStep {
+    ///     pre_size: 16 * KB,
+    ///     mixing_numbers: 4,
+    /// };
+    /// let rom = Rom::new(b"seed", gen_type, 256 * KB);
+    /// ```
+    ///
     pub fn new(key: &[u8], gen_type: RomGenerationType, size: usize) -> Self {
         let mut data = vec![0; size];
 
@@ -35,7 +85,7 @@ impl Rom {
         Self { digest, data }
     }
 
-    pub fn at<'a>(&'a self, i: u32) -> &'a [u8; DATASET_ACCESS_SIZE] {
+    pub(crate) fn at<'a>(&'a self, i: u32) -> &'a [u8; DATASET_ACCESS_SIZE] {
         let start = (i as usize).wrapping_mul(DATASET_ACCESS_SIZE) % self.data.len();
         <&[u8; DATASET_ACCESS_SIZE]>::try_from(&self.data[start..start + DATASET_ACCESS_SIZE])
             .unwrap()
