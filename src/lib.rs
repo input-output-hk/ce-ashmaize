@@ -13,9 +13,10 @@ const REGS_INDEX_MASK: u8 = NB_REGS as u8 - 1;
 
 mod rom;
 
-pub use rom::{Rom, RomDigest, RomGenerationType};
+use self::rom::RomDigest;
+pub use self::rom::{Rom, RomGenerationType};
 
-pub struct VM {
+struct VM {
     program: Program,
     regs: [u64; NB_REGS],
     ip: u32,
@@ -26,13 +27,13 @@ pub struct VM {
 }
 
 #[derive(Clone, Copy)]
-pub enum Instr {
+enum Instr {
     Op3(Op3),
     Op2(Op2),
 }
 
 #[derive(Clone, Copy)]
-pub enum Op3 {
+enum Op3 {
     Add,
     Mul,
     MulH,
@@ -42,7 +43,7 @@ pub enum Op3 {
 }
 
 #[derive(Clone, Copy)]
-pub enum Op2 {
+enum Op2 {
     ISqrt,
     Neg,
     BitRev,
@@ -73,7 +74,7 @@ impl From<u8> for Instr {
 }
 
 #[derive(Clone, Copy)]
-pub enum Operand {
+enum Operand {
     Reg,
     Memory,
     Literal,
@@ -197,7 +198,7 @@ impl VM {
     }
 }
 
-pub struct Program {
+struct Program {
     instructions: Vec<u8>,
 }
 

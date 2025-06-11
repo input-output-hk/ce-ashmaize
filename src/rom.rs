@@ -5,10 +5,10 @@ use cryptoxide::{
 
 pub const DATASET_ACCESS_SIZE: usize = 64;
 
-pub struct RomDigest(pub(crate) [u8; 64]);
+pub(crate) struct RomDigest(pub(crate) [u8; 64]);
 
 pub struct Rom {
-    pub digest: RomDigest,
+    pub(crate) digest: RomDigest,
     data: Vec<u8>,
 }
 
