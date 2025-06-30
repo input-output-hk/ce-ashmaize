@@ -52,7 +52,7 @@ const NB_REGS: usize = 1 << REGS_BITS;
 const REGS_BITS: usize = 5;
 const REGS_INDEX_MASK: u8 = NB_REGS as u8 - 1;
 
-/// The `Ashmaze`'s virtual machine
+/// The `Ashmaize`'s virtual machine
 struct VM {
     program: Program,
     regs: [u64; NB_REGS],
@@ -133,6 +133,8 @@ impl From<u8> for Operand {
 }
 
 impl VM {
+    /// Create a new VM which is specific to the ROM by using the RomDigest,
+    /// but mainly dependent on the salt which is an arbitrary byte content
     pub fn new(seed_regs: &RomDigest, nb_instrs: u32, salt: &[u8]) -> Self {
         let seed = Blake2b::<512>::new()
             .update(&seed_regs.0)

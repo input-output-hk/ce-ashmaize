@@ -42,7 +42,7 @@ fn main() {
     const MB: usize = 1024 * 1024;
     const GB: usize = 1024 * MB;
 
-    let args = std::env::args().collect::<Vec<_>>();
+    let _args = std::env::args().collect::<Vec<_>>();
 
     let key = b"key";
 
