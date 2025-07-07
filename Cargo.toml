@@ -18,3 +18,15 @@ getrandom = "0.3"
 [[bench]]
 name = "bench"
 harness = false
+
+[workspace]
+resolver = "3"
+members = ["crates/ashmaize-web"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT Or Apache-2.0"
+repository = "https://github.com/input-output-hk/ce-ashmaize"
+description = """Ashmaize is a Random VM. Just like RandomX, except its core algorithm is optimised
+for mobile and webrowser development."""

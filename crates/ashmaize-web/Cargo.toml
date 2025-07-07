@@ -1,0 +1,19 @@
+[package]
+name = "ashmaize-web"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+description.workspace = true
+
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ashmaize = { path = "../.." }
+wasm-bindgen = { version = "~0.2.100" }
+
+[dev-dependencies]
+wasm-bindgen-test = "~0.3.50"
