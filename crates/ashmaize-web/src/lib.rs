@@ -1,4 +1,10 @@
+mod utils;
+
 use wasm_bindgen::prelude::*;
+
+#[cfg(feature = "wee_alloc")]
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 /// The Read Only Memory [`Rom`].
 ///
@@ -57,6 +63,10 @@ impl Rom {
 impl RomBuilder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
+        // set the panic hook. This function is going to be used/called only
+        // once. Subsequent calls will do nothing.
+        utils::set_panic_hook();
+
         Self::default()
     }
 
