@@ -249,7 +249,7 @@ impl Program {
         Self { instructions }
     }
 
-    pub fn at<'a>(&'a self, i: u32) -> &'a [u8; INSTR_SIZE] {
+    pub fn at(&self, i: u32) -> &[u8; INSTR_SIZE] {
         let start = (i as usize).wrapping_mul(INSTR_SIZE) % self.instructions.len();
         <&[u8; INSTR_SIZE]>::try_from(&self.instructions[start..start + INSTR_SIZE]).unwrap()
     }
