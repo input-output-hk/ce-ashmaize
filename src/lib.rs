@@ -227,9 +227,9 @@ impl VM {
     pub(crate) fn debug(&self) -> String {
         let mut out = String::new();
         for (i, r) in self.regs.iter().enumerate() {
-            out.push_str(&format!("[{:02x}] {:016x} ", i, r));
+            out.push_str(&format!("[{i:02x}] {r:016x} "));
             if (i % 4) == 3 {
-                out.push_str("\n");
+                out.push('\n');
             }
         }
         out.push_str(&format!("ip {:08x}\n", self.ip,));
