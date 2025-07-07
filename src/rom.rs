@@ -157,7 +157,7 @@ fn random_gen(gen_type: RomGenerationType, seed: [u8; 32], output: &mut [u8]) ->
         RomDigest(digest.finalize())
     } else {
         argon2::hprime(output, &seed);
-        RomDigest(Blake2b::<512>::new().update(&output).finalize())
+        RomDigest(Blake2b::<512>::new().update(output).finalize())
     }
 }
 
