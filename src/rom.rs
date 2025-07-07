@@ -86,7 +86,7 @@ impl Rom {
     }
 
     pub(crate) fn at<'a>(&'a self, i: u32) -> &'a [u8; DATASET_ACCESS_SIZE] {
-        let start = (i as usize).wrapping_mul(DATASET_ACCESS_SIZE) % self.data.len();
+        let start = i as usize % (self.data.len() / DATASET_ACCESS_SIZE);
         <&[u8; DATASET_ACCESS_SIZE]>::try_from(&self.data[start..start + DATASET_ACCESS_SIZE])
             .unwrap()
     }
