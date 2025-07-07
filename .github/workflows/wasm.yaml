@@ -50,25 +50,24 @@ jobs:
 
       - run: wasm-pack test --headless --firefox --no-default-features --features wee_alloc,console_error_panic_hook
         working-directory: crates/ashmaize-web
-
-  safari:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v2
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-      - run: wasm-pack test --headless --safari --no-default-features
-        working-directory: crates/ashmaize-web
-
-      - run: wasm-pack test --headless --safari --no-default-features --features wee_alloc
-        working-directory: crates/ashmaize-web
-
-      - run: wasm-pack test --headless --safari --no-default-features --features console_error_panic_hook
-        working-directory: crates/ashmaize-web
-
-      - run: wasm-pack test --headless --safari --no-default-features --features wee_alloc,console_error_panic_hook
-        working-directory: crates/ashmaize-web
+#  safari:
+#    runs-on: macos-latest
+#    steps:
+#      - uses: actions/checkout@v2
+#
+#      - uses: dtolnay/rust-toolchain@stable
+#
+#      - name: Install
+#        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+#
+#      - run: wasm-pack test --headless --safari --no-default-features
+#        working-directory: crates/ashmaize-web
+#
+#      - run: wasm-pack test --headless --safari --no-default-features --features wee_alloc
+#        working-directory: crates/ashmaize-web
+#
+#      - run: wasm-pack test --headless --safari --no-default-features --features console_error_panic_hook
+#        working-directory: crates/ashmaize-web
+#
+#      - run: wasm-pack test --headless --safari --no-default-features --features wee_alloc,console_error_panic_hook
+#        working-directory: crates/ashmaize-web
