@@ -1,3 +1,11 @@
+**This project is currently a work in progress. It is provided as-is, without
+any warranty of correctness, functionality, or fitness for any particular
+purpose. There is no guarantee that it works as intended, and it may contain
+bugs, incomplete features, or incorrect cryptographic behavior.**
+
+**Do not use this software for security-critical or production purposes. Use at
+your own risk.**
+
 # AshMaize
 
 AshMaize is a simple PoW that is somewhat ASIC resistant, yet relative simple to implement
