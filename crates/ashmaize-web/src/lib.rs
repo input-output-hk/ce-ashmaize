@@ -19,9 +19,11 @@ pub enum RomBuilderError {
     /// [`RomBuilder::gen_full_random`] or [`RomBuilder::gen_two_steps`]
     /// to set a Generation Type.
     MissingGenType = 3,
+    /// The [`RomBuilder::size`] cannot be null.
+    SizeIsZero = 4,
     /// error shown if the `pre_size` parameter in [`RomBuilder::gen_two_steps`]
     /// is not a power of two.
-    PreSizeNotPowerOfTwo = 4,
+    PreSizeNotPowerOfTwo = 5,
 }
 
 /// Helper object to build a [`Rom`].
@@ -91,11 +93,6 @@ impl RomBuilder {
     ///
     #[wasm_bindgen]
     pub fn gen_two_steps(&mut self, pre_size: usize, mixing_numbers: usize) {
-        debug_assert!(
-            pre_size.is_power_of_two(),
-            "`pre_size' must be a power of 2"
-        );
-
         self.gen_type = Some(ashmaize::RomGenerationType::TwoStep {
             pre_size,
             mixing_numbers,
@@ -109,6 +106,10 @@ impl RomBuilder {
         let key = self.key.as_deref().ok_or(RomBuilderError::MissingKey)?;
         let size = self.size.ok_or(RomBuilderError::MissingSize)?;
         let gen_type = self.gen_type.ok_or(RomBuilderError::MissingGenType)?;
+
+        if size == 0 {
+            return Err(RomBuilderError::SizeIsZero);
+        }
 
         if let ashmaize::RomGenerationType::TwoStep { pre_size, .. } = gen_type
             && !pre_size.is_power_of_two()
