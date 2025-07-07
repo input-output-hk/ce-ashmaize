@@ -382,7 +382,7 @@ pub fn hash(salt: &[u8], rom: &Rom, nb_loops: u32, nb_instrs: u32) -> [u8; 64] {
     let mut vm = VM::new(&rom.digest, nb_instrs, salt);
     for i in 0..nb_loops {
         let final_loop = i == nb_loops - 1;
-        vm.execute(&rom, nb_instrs, final_loop);
+        vm.execute(rom, nb_instrs, final_loop);
     }
     vm.finalize()
 }
