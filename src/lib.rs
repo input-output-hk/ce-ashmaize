@@ -293,7 +293,7 @@ fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
 
     let rs = ((prog_chunk[2] as u16) << 8) | (prog_chunk[3] as u16);
     let r1 = ((rs >> (2 * REGS_BITS)) as u8) & REGS_INDEX_MASK;
-    let r2 = ((rs >> (1 * REGS_BITS)) as u8) & REGS_INDEX_MASK;
+    let r2 = ((rs >> REGS_BITS) as u8) & REGS_INDEX_MASK;
     let r3 = (rs as u8) & REGS_INDEX_MASK;
 
     let lit1 = u64::from_le_bytes(*<&[u8; 8]>::try_from(&prog_chunk[4..12]).unwrap());
