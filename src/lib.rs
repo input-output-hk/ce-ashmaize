@@ -245,7 +245,7 @@ impl Program {
     pub fn new(seed: &[u8], nb_instrs: u32) -> Self {
         let size = nb_instrs as usize * INSTR_SIZE;
         let mut instructions = vec![0; size];
-        argon2::hprime(&mut instructions, &seed);
+        argon2::hprime(&mut instructions, seed);
         Self { instructions }
     }
 
