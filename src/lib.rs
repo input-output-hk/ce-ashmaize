@@ -29,7 +29,7 @@ use ashmaize::hash;
 let digest = hash(b"salt", &rom, 8, 256);
 # assert_eq!(
 #      digest,
-#      [235, 220, 158, 74, 62, 237, 133, 94, 124, 169, 203, 136, 92, 215, 155, 192, 184, 92, 38, 178, 239, 136, 86, 107, 217, 67, 55, 139, 213, 54, 119, 250, 74, 22, 206, 130, 122, 243, 166, 213, 50, 12, 223, 87, 1, 155, 16, 126, 25, 7, 132, 26, 59, 31, 252, 67, 70, 45, 224, 220, 152, 104, 108, 56]
+#      [39, 200, 35, 132, 250, 151, 62, 36, 195, 37, 55, 6, 49, 113, 39, 252, 116, 112, 101, 81, 253, 131, 10, 219, 152, 249, 52, 72, 200, 130, 140, 178, 31, 219, 153, 103, 73, 154, 110, 196, 245, 10, 65, 203, 223, 3, 64, 51, 154, 179, 86, 174, 136, 107, 27, 89, 29, 235, 97, 95, 230, 159, 207, 58]
 # );```
 
 */
@@ -52,13 +52,18 @@ const NB_REGS: usize = 1 << REGS_BITS;
 const REGS_BITS: usize = 5;
 const REGS_INDEX_MASK: u8 = NB_REGS as u8 - 1;
 
+type Register = u64;
+
+const REGISTER_SIZE: usize = std::mem::size_of::<Register>();
+
 /// The `Ashmaize`'s virtual machine
 struct VM {
     program: Program,
-    regs: [u64; NB_REGS],
+    regs: [Register; NB_REGS],
     ip: u32,
     prog_digest: blake2b::Context<512>,
     mem_digest: blake2b::Context<512>,
+    prog_seed: [u8; 64],
     memory_counter: u32,
     loop_counter: u32,
 }
@@ -77,6 +82,8 @@ enum Op3 {
     Xor,
     Div,
     Mod,
+    And,
+    Hash(u8),
 }
 
 #[derive(Clone, Copy)]
@@ -93,19 +100,19 @@ enum Op2 {
 impl From<u8> for Instr {
     fn from(value: u8) -> Self {
         match value {
-            0..32 => Instr::Op3(Op3::Add),
-            32..64 => Instr::Op3(Op3::Mul),
-            64..96 => Instr::Op3(Op3::MulH),
-            96..112 => Instr::Op2(Op2::ISqrt),
-            112..134 => Instr::Op3(Op3::Div),
-            134..152 => Instr::Op3(Op3::Mod),
-            152..192 => Instr::Op2(Op2::BitRev),
-            200..208 => Instr::Op3(Op3::Xor),
-            208..216 => Instr::Op2(Op2::RotL),
-            216..232 => Instr::Op2(Op2::RotR),
-            232..240 => Instr::Op2(Op2::Neg),
-            240..250 => Instr::Op2(Op2::Neg),
-            _ => Instr::Op3(Op3::Add),
+            0..40 => Instr::Op3(Op3::Add),                   // 40
+            40..80 => Instr::Op3(Op3::Mul),                  // 40
+            80..96 => Instr::Op3(Op3::MulH),                 // 16
+            96..112 => Instr::Op3(Op3::Div),                 // 16
+            112..128 => Instr::Op3(Op3::Mod),                // 16
+            128..138 => Instr::Op2(Op2::ISqrt),              // 10
+            138..148 => Instr::Op2(Op2::BitRev),             // 10
+            148..188 => Instr::Op3(Op3::Xor),                // 40
+            188..204 => Instr::Op2(Op2::RotL),               // 16
+            204..220 => Instr::Op2(Op2::RotR),               // 16
+            220..240 => Instr::Op2(Op2::Neg),                // 20
+            240..248 => Instr::Op3(Op3::And),                // 8
+            248..=255 => Instr::Op3(Op3::Hash(value - 248)), // 8
         }
     }
 }
@@ -135,41 +142,39 @@ impl From<u8> for Operand {
 impl VM {
     /// Create a new VM which is specific to the ROM by using the RomDigest,
     /// but mainly dependent on the salt which is an arbitrary byte content
-    pub fn new(seed_regs: &RomDigest, nb_instrs: u32, salt: &[u8]) -> Self {
-        let seed = Blake2b::<512>::new()
-            .update(&seed_regs.0)
-            .update(salt)
-            .finalize();
+    pub fn new(rom_digest: &RomDigest, nb_instrs: u32, salt: &[u8]) -> Self {
+        const DIGEST_INIT_SIZE: usize = 64;
+        const REGS_CONTENT_SIZE: usize = REGISTER_SIZE * NB_REGS;
+
+        let mut init_buffer = [0; REGS_CONTENT_SIZE + 3 * DIGEST_INIT_SIZE];
+
+        let mut init_buffer_input = rom_digest.0.to_vec();
+        init_buffer_input.extend_from_slice(salt);
+        argon2::hprime(&mut init_buffer, &init_buffer_input);
+
+        let (init_buffer_regs, init_buffer_digests) = init_buffer.split_at(REGS_CONTENT_SIZE);
+
         let mut regs = [0; NB_REGS];
-        for (i, regs) in regs.chunks_mut(8).enumerate() {
-            let reg_out = Blake2b::<512>::new()
-                .update(&seed)
-                .update(&(i as u32).to_le_bytes())
-                .finalize();
-            for (reg_bytes, reg) in reg_out.chunks(8).zip(regs.iter_mut()) {
-                *reg = u64::from_le_bytes(*<&[u8; 8]>::try_from(reg_bytes).unwrap())
-            }
+        for (reg, reg_bytes) in regs.iter_mut().zip(init_buffer_regs.chunks(REGISTER_SIZE)) {
+            *reg = u64::from_le_bytes(*<&[u8; 8]>::try_from(reg_bytes).unwrap());
         }
 
-        let reg_digest = {
-            let mut context = Blake2b::<512>::new().update(&seed);
-            for reg in regs {
-                context.update_mut(&reg.to_le_bytes())
-            }
-            context.finalize()
-        };
+        let mut digests = init_buffer_digests.chunks(DIGEST_INIT_SIZE);
+        let prog_digest = Blake2b::<512>::new().update(&digests.next().unwrap());
+        let mem_digest = Blake2b::<512>::new().update(&digests.next().unwrap());
+        let prog_seed = *<&[u8; 64]>::try_from(digests.next().unwrap()).unwrap();
 
-        let program = Program::new(&seed, nb_instrs);
+        assert_eq!(digests.next(), None);
 
-        let prog_digest = Blake2b::<512>::new().update(&reg_digest).update(b"program");
-        let mem_digest = Blake2b::<512>::new().update(&reg_digest).update(b"memory");
+        let program = Program::new(nb_instrs);
 
         Self {
             program,
             regs,
-            ip: 0,
             prog_digest,
             mem_digest,
+            prog_seed,
+            ip: 0,
             loop_counter: 0,
             memory_counter: 0,
         }
@@ -180,35 +185,48 @@ impl VM {
         self.ip = self.ip.wrapping_add(1);
     }
 
-    pub fn post_instructions(&mut self, is_final: bool) {
-        let prog_digest = self.prog_digest.clone().finalize();
-        let mem_digest = self.mem_digest.clone().finalize();
+    fn sum_regs(&self) -> u64 {
+        self.regs.iter().fold(0, |acc, r| acc.wrapping_add(*r))
+    }
+
+    pub fn post_instructions(&mut self) {
+        let sum_regs = self.sum_regs();
+
+        let prog_value = self
+            .prog_digest
+            .clone()
+            .update(&sum_regs.to_le_bytes())
+            .finalize();
+        let mem_value = self
+            .mem_digest
+            .clone()
+            .update(&sum_regs.to_le_bytes())
+            .finalize();
+
         let mixing_value = Blake2b::<512>::new()
-            .update(&prog_digest)
-            .update(&mem_digest)
+            .update(&prog_value)
+            .update(&mem_value)
             .update(&self.loop_counter.to_le_bytes())
             .finalize();
-        let mut mixing_out = vec![0; NB_REGS * 1024];
+        let mut mixing_out = vec![0; NB_REGS * REGISTER_SIZE * 32];
         argon2::hprime(&mut mixing_out, &mixing_value);
 
-        for mem_chunks in mixing_out.chunks(NB_REGS * 8) {
+        for mem_chunks in mixing_out.chunks(NB_REGS * REGISTER_SIZE) {
             for (reg, reg_chunk) in self.regs.iter_mut().zip(mem_chunks.chunks(8)) {
                 *reg ^= u64::from_le_bytes(*<&[u8; 8]>::try_from(reg_chunk).unwrap())
             }
         }
 
-        if !is_final {
-            self.program.shuffle(&prog_digest)
-        }
-
+        self.prog_seed = prog_value;
         self.loop_counter = self.loop_counter.wrapping_add(1)
     }
 
-    pub fn execute(&mut self, rom: &Rom, instr: u32, final_loop: bool) {
+    pub fn execute(&mut self, rom: &Rom, instr: u32) {
+        self.program.shuffle(&self.prog_seed);
         for _ in 0..instr {
             self.step(rom)
         }
-        self.post_instructions(final_loop)
+        self.post_instructions()
     }
 
     pub fn finalize(self) -> [u8; 64] {
@@ -216,7 +234,8 @@ impl VM {
         let mem_digest = self.mem_digest.finalize();
         let mut context = Blake2b::<512>::new()
             .update(&prog_digest)
-            .update(&mem_digest);
+            .update(&mem_digest)
+            .update(&self.memory_counter.to_le_bytes());
         for r in self.regs {
             context.update_mut(&r.to_le_bytes());
         }
@@ -242,10 +261,9 @@ struct Program {
 }
 
 impl Program {
-    pub fn new(seed: &[u8], nb_instrs: u32) -> Self {
+    pub fn new(nb_instrs: u32) -> Self {
         let size = nb_instrs as usize * INSTR_SIZE;
-        let mut instructions = vec![0; size];
-        argon2::hprime(&mut instructions, seed);
+        let instructions = vec![0; size];
         Self { instructions }
     }
 
@@ -254,8 +272,46 @@ impl Program {
         <&[u8; INSTR_SIZE]>::try_from(&self.instructions[start..start + INSTR_SIZE]).unwrap()
     }
 
-    pub fn shuffle(&mut self, seed: &[u8]) {
+    pub fn shuffle(&mut self, seed: &[u8; 64]) {
         argon2::hprime(&mut self.instructions, seed)
+    }
+}
+
+#[derive(Clone)]
+pub struct Instruction {
+    opcode: Instr,
+    op1: Operand,
+    op2: Operand,
+    r1: u8,
+    r2: u8,
+    r3: u8,
+    lit1: u64,
+    lit2: u64,
+}
+
+#[inline]
+fn decode_instruction(instruction: &[u8; INSTR_SIZE]) -> Instruction {
+    let opcode = Instr::from(instruction[0]);
+    let op1 = Operand::from(instruction[1] >> 4);
+    let op2 = Operand::from(instruction[1] & 0x0f);
+
+    let rs = ((instruction[2] as u16) << 8) | (instruction[3] as u16);
+    let r1 = ((rs >> (2 * REGS_BITS)) as u8) & REGS_INDEX_MASK;
+    let r2 = ((rs >> REGS_BITS) as u8) & REGS_INDEX_MASK;
+    let r3 = (rs as u8) & REGS_INDEX_MASK;
+
+    let lit1 = u64::from_le_bytes(*<&[u8; 8]>::try_from(&instruction[4..12]).unwrap());
+    let lit2 = u64::from_le_bytes(*<&[u8; 8]>::try_from(&instruction[12..20]).unwrap());
+
+    Instruction {
+        opcode,
+        op1,
+        op2,
+        r1,
+        r2,
+        r3,
+        lit1,
+        lit2,
     }
 }
 
@@ -288,17 +344,16 @@ fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
         }};
     }
 
-    let opcode = Instr::from(prog_chunk[0]);
-    let op1 = Operand::from(prog_chunk[1] >> 4);
-    let op2 = Operand::from(prog_chunk[1] & 0x0f);
-
-    let rs = ((prog_chunk[2] as u16) << 8) | (prog_chunk[3] as u16);
-    let r1 = ((rs >> (2 * REGS_BITS)) as u8) & REGS_INDEX_MASK;
-    let r2 = ((rs >> REGS_BITS) as u8) & REGS_INDEX_MASK;
-    let r3 = (rs as u8) & REGS_INDEX_MASK;
-
-    let lit1 = u64::from_le_bytes(*<&[u8; 8]>::try_from(&prog_chunk[4..12]).unwrap());
-    let lit2 = u64::from_le_bytes(*<&[u8; 8]>::try_from(&prog_chunk[12..20]).unwrap());
+    let Instruction {
+        opcode,
+        op1,
+        op2,
+        r1,
+        r2,
+        r3,
+        lit1,
+        lit2,
+    } = decode_instruction(&prog_chunk);
 
     match opcode {
         Instr::Op3(operator) => {
@@ -334,6 +389,19 @@ fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
                         special1_value64!(vm)
                     } else {
                         src1 / src2
+                    }
+                }
+                Op3::And => src1 & src2,
+                Op3::Hash(v) => {
+                    assert!(v < 8);
+                    let out = Blake2b::<512>::new()
+                        .update(&src1.to_le_bytes())
+                        .update(&src2.to_le_bytes())
+                        .finalize();
+                    if let Some(chunk) = out.chunks(8).nth(v as usize) {
+                        u64::from_le_bytes(*<&[u8; 8]>::try_from(chunk).unwrap())
+                    } else {
+                        panic!("chunk doesn't exist")
                     }
                 }
             };
@@ -373,17 +441,14 @@ fn execute_one_instruction(vm: &mut VM, rom: &Rom) {
 /// const NB_LOOPS: u32 = 8;
 /// const NB_INSTRS: u32 = 256;
 /// let digest = hash(b"salt", &rom, NB_LOOPS, NB_INSTRS);
-/// # assert_eq!(
-/// #      digest,
-/// #      [235, 220, 158, 74, 62, 237, 133, 94, 124, 169, 203, 136, 92, 215, 155, 192, 184, 92, 38, 178, 239, 136, 86, 107, 217, 67, 55, 139, 213, 54, 119, 250, 74, 22, 206, 130, 122, 243, 166, 213, 50, 12, 223, 87, 1, 155, 16, 126, 25, 7, 132, 26, 59, 31, 252, 67, 70, 45, 224, 220, 152, 104, 108, 56]
-/// # );
 /// ```
 ///
 pub fn hash(salt: &[u8], rom: &Rom, nb_loops: u32, nb_instrs: u32) -> [u8; 64] {
+    assert!(nb_loops >= 2);
+    assert!(nb_instrs >= 256);
     let mut vm = VM::new(&rom.digest, nb_instrs, salt);
-    for i in 0..nb_loops {
-        let final_loop = i == nb_loops - 1;
-        vm.execute(rom, nb_instrs, final_loop);
+    for _ in 0..nb_loops {
+        vm.execute(rom, nb_instrs);
     }
     vm.finalize()
 }
@@ -403,8 +468,8 @@ mod tests {
             10_240,
         );
 
-        let h1 = hash(&0u128.to_be_bytes(), &rom, 8, 128);
-        let h2 = hash(&0u128.to_be_bytes(), &rom, 8, 129);
+        let h1 = hash(&0u128.to_be_bytes(), &rom, 8, 256);
+        let h2 = hash(&0u128.to_be_bytes(), &rom, 8, 257);
 
         assert_ne!(h1, h2);
     }
@@ -450,10 +515,10 @@ mod tests {
         const NB_INSTR: u32 = 256;
 
         const EXPECTED: [u8; 64] = [
-            165, 176, 206, 3, 53, 6, 210, 199, 204, 8, 95, 178, 189, 0, 216, 41, 59, 186, 178, 244,
-            224, 2, 136, 33, 85, 149, 238, 107, 30, 85, 172, 145, 242, 237, 234, 198, 122, 121,
-            110, 95, 227, 208, 118, 57, 243, 216, 38, 146, 132, 58, 44, 203, 183, 194, 111, 13, 37,
-            82, 123, 46, 226, 55, 75, 202,
+            56, 148, 1, 228, 59, 96, 211, 173, 9, 98, 68, 61, 89, 171, 124, 171, 124, 183, 200,
+            196, 29, 43, 133, 168, 218, 217, 255, 71, 234, 182, 97, 158, 231, 156, 56, 230, 61, 54,
+            248, 199, 150, 15, 66, 0, 149, 185, 85, 177, 192, 220, 237, 77, 195, 106, 140, 223,
+            175, 93, 238, 220, 57, 159, 180, 243,
         ];
 
         let rom = Rom::new(
