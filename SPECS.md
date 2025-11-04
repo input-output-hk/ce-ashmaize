@@ -73,16 +73,16 @@ Function Rom2Steps(key, preRomSize, romSize)
     pre-rom = argon2Hprime(seed, preRomSize)
 
     for i in 0..4
-        offset-diff[i] = u16s(Digest(seed | "generation offset" | LE32(i))
+        offset-diff[32*i..32*(i+1)] = u16s(Digest(seed | "generation offset" | LE32(i))
 
-    offset-base = argon2Hprime(Digest(seed | "generation base"), romSize)
+    offset-base = argon2Hprime(Digest(seed | "generation base"), romSize / 64)
 
     rom = allocate(romSize)
     for i, chunk in chunks(64, rom)
         chunk = pre-rom[i]
 
         for d in 1..mixingNumbers
-            chunk ^= pre-rom[i + offset-base[i] + offset-diff[i]]
+            chunk ^= pre-rom[offset-base[i] + offset-diff[d-1]]
     return rom
 ```
 
@@ -162,13 +162,13 @@ Function PostInstructions()
   mem_value = DigestFinalize(DigestUpdate(MEM_DIGEST, LE(sum_regs))
 
   NB_MIXING = 32
-  mixing = Argon2Hprime(NB_MIXING * NB_REGS * REGISTER_SIZE, Digest(prog_value || mem_value || LC))
+  mixing = Argon2Hprime(NB_MIXING * NB_REGS * REGISTER_SIZE, Digest(prog_value || mem_value || LE(LC)))
   repeat NB_MIXING
     repeat all_registers
       REG[i] ^= LE(mixing[0..8])
       mixing += 8
 
-  PROG_SEED = prog_digest
+  PROG_SEED = prog_value
   LC += 1
 ```
 
@@ -286,7 +286,7 @@ Function Argon2Hprime(seed, size) =
     output = []
     V0 = Digest(LE32(size) | seed)
     output.append(V0[0..32])
-    while output.len() > 64
+    while size - output.len() > 64
        V[i+1] = Digest(V[i])
        output.append(V[i+1][0..32])
     V[last] = Digest(V[last-1])
